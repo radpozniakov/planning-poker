@@ -1,0 +1,24 @@
+{
+  "name": "planning-poker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Planning Picker — a deliberately simple, self-hosted, real-time planning-poker app",
+  "workspaces": [
+    "shared",
+    "BE",
+    "FE"
+  ],
+  "scripts": {
+    "lint": "oxlint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace @pp/be",
+    "build": "npm run build --workspace @pp/be && npm run build --workspace @pp/fe",
+    "dev:be": "npm run dev --workspace @pp/be",
+    "dev:fe": "npm run dev --workspace @pp/fe"
+  },
+  "devDependencies": {
+    "oxlint": "^1.70.0",
+    "typescript": "^6.0.3"
+  }
+}

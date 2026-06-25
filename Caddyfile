@@ -1,0 +1,14 @@
+# Reverse proxy: WebSocket upstream + static SPA. Caddy v2 upgrades WS transparently —
+# no extra header config needed. SITE_ADDRESS is injected by docker-compose (defaults to
+# :80 for local/IP; set it to a real domain for automatic HTTPS).
+{$SITE_ADDRESS} {
+	# socket.io traffic (HTTP long-poll handshake + WS upgrade) -> the Node BE.
+	handle /socket.io* {
+		reverse_proxy be:3000
+	}
+
+	# Everything else -> the static SPA served by nginx.
+	handle {
+		reverse_proxy fe:80
+	}
+}

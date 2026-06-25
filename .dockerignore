@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/build
+**/.svelte-kit
+.git
+.omc
+*.log
+.DS_Store
