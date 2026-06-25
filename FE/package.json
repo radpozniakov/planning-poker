@@ -13,8 +13,7 @@
   "dependencies": {
     "@internationalized/date": "^3.8.1",
     "@pp/shared": "*",
-    "bits-ui": "^2.18.1",
-    "socket.io-client": "^4.8.3"
+    "bits-ui": "^2.18.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",

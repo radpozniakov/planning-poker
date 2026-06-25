@@ -63,6 +63,17 @@ export class RoomRegistry {
     return this.rooms.size;
   }
 
+  /**
+   * Opaque connectionIds of every participant currently in a room (empty if the room is
+   * gone). Lets the transport layer fan a broadcast out to the room without the registry
+   * ever holding a socket — preserves the connectionId boundary (ADR-001).
+   */
+  connectionIdsIn(roomCode: string): string[] {
+    const room = this.rooms.get(normalizeCode(roomCode));
+    if (!room) return [];
+    return [...room.participants.values()].map((p) => p.connectionId);
+  }
+
   // -------------------------------------------------------------------------
   // Wire serialization (public DTO boundary)
   // -------------------------------------------------------------------------

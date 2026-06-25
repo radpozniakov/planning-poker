@@ -1,33 +1,23 @@
-import { createServer } from "node:http";
-import { createSocketServer } from "./handlers";
-import { RoomRegistry } from "./rooms";
+import { serve } from "@hono/node-server";
+import { createApp } from "./app";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-const registry = new RoomRegistry();
+const { app, injectWebSocket, connections } = createApp();
 
-const httpServer = createServer((req, res) => {
-  // Tiny health endpoint for container/proxy probes; everything else is WS.
-  if (req.url === "/health") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", rooms: registry.roomCount }));
-    return;
-  }
-  res.writeHead(404, { "content-type": "text/plain" });
-  res.end("Not Found");
-});
-
-const io = createSocketServer(httpServer, registry);
-
-httpServer.listen(PORT, () => {
+const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[planning-picker] listening on :${PORT}`);
 });
 
+// Attach the WS upgrade handler to the node server created by @hono/node-server.
+injectWebSocket(server);
+
 function shutdown(signal: string): void {
   console.log(`[planning-picker] ${signal} received — shutting down`);
-  io.close(() => {
-    httpServer.close(() => process.exit(0));
-  });
+  // server.close() stops accepting connections but does NOT drain live WS sockets, so
+  // close them explicitly (1001 = "Going Away") before closing the HTTP server.
+  connections.closeAll();
+  server.close(() => process.exit(0));
   // Don't hang forever if a connection refuses to close.
   setTimeout(() => process.exit(1), 5000).unref();
 }
