@@ -1,0 +1,45 @@
+# Planning Picker — three services behind Caddy (ADR-006 / spec line 45).
+#   docker compose up -d --build
+#
+# Local/IP:   leave SITE_ADDRESS unset -> Caddy serves plain HTTP on :80.
+# Production: set SITE_ADDRESS=your.domain.example (DNS pointed at the droplet, ports
+#             80+443 open) -> Caddy provisions automatic HTTPS.
+
+services:
+  be:
+    build:
+      context: .
+      dockerfile: BE/Dockerfile
+    environment:
+      PORT: "3000" # must match the `be:3000` upstream in the Caddyfile
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  fe:
+    build:
+      context: .
+      dockerfile: FE/Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - fe
+      - be
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
