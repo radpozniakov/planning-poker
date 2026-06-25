@@ -5,18 +5,15 @@ Create a room, share the link, everyone picks a hidden Fibonacci card, the host 
 and you get min / max / average + an "all agree" indicator. One task at a time. No
 accounts, no database — rooms live in memory and are gone on restart, by design.
 
-> Built stage by stage. See [`docs/scope.md`](docs/scope.md) for what's in Stage 1 (this
-> MVP) and [`docs/open-questions.md`](docs/open-questions.md) for carried decisions.
-
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
 | Frontend | SvelteKit (adapter-static **SPA**, `ssr=false`), Svelte 5 runes, plain CSS, optional Bits UI |
-| Realtime | `socket.io` (server) / `socket.io-client` (browser) |
-| Backend | Node.js + TypeScript, in-memory room registry, bundled to one file with esbuild |
+| Realtime | Native **WebSocket** over a JSON envelope contract (no socket.io); BE uses Hono's WS helper, FE uses the browser `WebSocket` API |
+| Backend | **Hono** (HTTP + WebSocket) on `@hono/node-server`, layered (entry → controllers/ws/domain), in-memory room registry, bundled to one file with esbuild — see [`BE/doc/glossary.md`](BE/doc/glossary.md) for the topology vocabulary and [`BE/doc/adr/`](BE/doc/adr/README.md) for the decisions behind it |
 | Contract | `@pp/shared` — types + zod schemas + event names shared by FE & BE (npm workspaces, no build step) |
-| Proxy / TLS | Caddy v2 (automatic HTTPS + transparent WebSocket upgrade) |
+| Serving | FE container's nginx serves the static SPA and reverse-proxies `/ws` (+ `/health`) to the BE; two containers, no separate proxy. TLS, if needed, is terminated by a front proxy on the host |
 | Lint / Test | oxlint · Vitest |
 
 Monorepo via npm workspaces: `shared/`, `BE/`, `FE/`.
@@ -27,7 +24,7 @@ Monorepo via npm workspaces: `shared/`, `BE/`, `FE/`.
 npm install            # installs all workspaces
 
 # Run the two dev servers (separate terminals):
-npm run dev:be         # BE on http://localhost:3000 (socket.io)
+npm run dev:be         # BE on http://localhost:3000 (WebSocket at /ws)
 npm run dev:fe         # FE on http://localhost:5173 (Vite, proxies to the BE in dev)
 ```
 
@@ -42,25 +39,31 @@ npm test               # Vitest unit tests (stats + registry/host-transfer/wire 
 npm run build          # bundle BE (esbuild) + build the static FE (vite)
 ```
 
-## Deploy (Docker + Caddy)
+## Deploy (Docker)
 
-Built and run on the droplet — no registry, manual deploy:
+Two containers, built and run in place — no registry, manual deploy:
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose up -d --build      # serves on http://<host>:8080
 ```
 
-- **Local / IP (plain HTTP):** leave `SITE_ADDRESS` unset — Caddy serves on `:80`.
-- **Production (automatic HTTPS):** point a domain's DNS at the droplet, open ports 80+443,
-  then:
+- **`be`** — the Node backend, internal only (`expose: 3000`); never published directly.
+- **`fe`** — nginx serving the static SPA, the only published service. Its `nginx.conf`
+  reverse-proxies `/ws` (WebSocket upgrade) and `/health` to `be:3000` over the compose
+  network.
 
-  ```bash
-  SITE_ADDRESS=planning.example.com docker compose up -d --build
-  ```
+Override the published port with `HTTP_PORT` (default `8080`) when `:8080` is taken or you
+want a different entry point:
 
-Caddy routes `/socket.io*` to the Node BE (`be:3000`) and everything else to the static FE
-(`fe:80`), upgrading WebSockets transparently.
+```bash
+HTTP_PORT=9000 docker compose up -d --build   # -> http://<host>:9000
+```
+
+**TLS / public hostname:** there's no built-in HTTPS. For a public deployment, terminate
+TLS at a front proxy on the host (e.g. an nginx/Caddy server block that proxies your domain
+to `127.0.0.1:8080`, forwarding the `/ws` upgrade). On a LAN box, access it by IP and port
+directly.
 
 > Redeploys restart the BE and therefore drop all live rooms (in-memory by design). The
 > client auto-reconnects, but an active round is lost.

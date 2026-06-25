@@ -1,9 +1,10 @@
-# Planning Picker — three services behind Caddy (ADR-006 / spec line 45).
+# Planning Picker — two services (ADR-006, Caddy removed).
 #   docker compose up -d --build
 #
-# Local/IP:   leave SITE_ADDRESS unset -> Caddy serves plain HTTP on :80.
-# Production: set SITE_ADDRESS=your.domain.example (DNS pointed at the droplet, ports
-#             80+443 open) -> Caddy provisions automatic HTTPS.
+# The FE container's nginx serves the static SPA and reverse-proxies /ws (+ /health) to the
+# BE over the compose network, so only the FE is published. HTTPS/Caddy is dropped: on this
+# host a front nginx (or direct LAN access) terminates TLS. Override the published port with
+# HTTP_PORT (default 8080) -> http://<host>:8080.
 
 services:
   be:
@@ -11,7 +12,7 @@ services:
       context: .
       dockerfile: BE/Dockerfile
     environment:
-      PORT: "3000" # must match the `be:3000` upstream in the Caddyfile
+      PORT: "3000" # must match the `be:3000` upstream in FE/nginx.conf
     expose:
       - "3000"
     restart: unless-stopped
@@ -20,26 +21,8 @@ services:
     build:
       context: .
       dockerfile: FE/Dockerfile
-    expose:
-      - "80"
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2-alpine
     depends_on:
-      - fe
-      - be
-    environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      - be # fe's nginx proxies /ws to be:3000; ensure it's resolvable on start
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - "${HTTP_PORT:-8080}:80"
     restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:
