@@ -20,9 +20,11 @@
     "test": "npm run test --workspace @pp/be",
     "build": "npm run build --workspace @pp/be && npm run build --workspace @pp/fe",
     "dev:be": "npm run dev --workspace @pp/be",
-    "dev:fe": "npm run dev --workspace @pp/fe"
+    "dev:fe": "npm run dev --workspace @pp/fe",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "9.1.7",
     "oxlint": "^1.70.0",
     "prettier": "3.8.5",
     "prettier-plugin-svelte": "4.1.1",

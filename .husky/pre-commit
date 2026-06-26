@@ -1,0 +1,10 @@
+echo "▶ pre-commit: lint"
+npm run lint || { echo "✖ lint failed — commit aborted (fix with the reported rules)"; exit 1; }
+
+echo "▶ pre-commit: prettier"
+npm run format:check || { echo "✖ formatting failed — commit aborted (run: npm run format)"; exit 1; }
+
+echo "▶ pre-commit: typecheck"
+npm run typecheck || { echo "✖ typecheck failed — commit aborted"; exit 1; }
+
+echo "✔ pre-commit checks passed"
