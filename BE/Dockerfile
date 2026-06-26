@@ -2,7 +2,7 @@
 #   docker build -f BE/Dockerfile .
 
 # --- build: install workspace deps, bundle BE (esbuild inlines @pp/shared + socket.io) ---
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 # package manifests first for layer caching; all four are needed for `npm ci` to validate
 # the lockfile against the full workspace graph.
@@ -16,7 +16,7 @@ COPY BE/ BE/
 RUN npm run build --workspace @pp/be
 
 # --- runtime: just node + the self-contained bundle. No node_modules required. ---
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
