@@ -39,6 +39,16 @@ npm test               # Vitest unit tests (stats + registry/host-transfer/wire 
 npm run build          # bundle BE (esbuild) + build the static FE (vite)
 ```
 
+### TypeScript versions
+
+`shared` and `BE` type-check with the **native TypeScript 7** compiler (`typescript@rc`,
+nested in each workspace so `npm run typecheck` resolves it). `FE` stays on **TypeScript 6**
+because `svelte-check` embeds the JavaScript-based TS compiler API, which the native TS 7
+package no longer exports. The root `typescript` dependency is therefore pinned to TS 6 (so
+the hoisted copy `svelte-check` resolves stays compatible), and TS 7 is also available at the
+root under the `typescript-7` alias (`npm:typescript@rc`). Once `svelte-check` supports the
+native compiler, `FE` and the root can move to TS 7 too.
+
 ## Deploy (Docker)
 
 Two containers, built and run in place — no registry, manual deploy:
