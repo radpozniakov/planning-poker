@@ -41,17 +41,20 @@ The WebSocket transport type is confined to exactly two files: `ws/gateway.ts`
 ## Consequences
 
 **Positive**
+
 - The domain is unit-testable with plain values — no socket mocks.
 - Transport swaps (socket.io → native WS) touch only the two transport files.
 - The no-value-leak and host-transfer invariants live in one socket-free place that's
   easy to reason about and test.
 
 **Negative / costs**
+
 - An indirection: broadcasting requires a round-trip through `connectionIdsIn` rather
   than the domain emitting directly.
 - Two registries must be kept consistent (the `bySocket` reverse index in the domain vs
   the `sockets` map in the transport layer).
 
 **Implications**
+
 - Identity is trusted from the server-minted `connectionId`; handlers resolve
   room/participant via `contextFor(connectionId)`, never from client-supplied fields.

@@ -3,7 +3,11 @@ import type { CardValue, Vote } from "@pp/shared";
 import { computeVoteStats } from "./stats";
 
 function votes(...cards: CardValue[]): Vote[] {
-  return cards.map((cardValue, i) => ({ participantId: `p${i}`, cardValue, hidden: false }));
+  return cards.map((cardValue, i) => ({
+    participantId: `p${i}`,
+    cardValue,
+    hidden: false,
+  }));
 }
 
 describe("computeVoteStats", () => {
@@ -34,11 +38,23 @@ describe("computeVoteStats", () => {
 
   it("returns nulls (no throw) when there are no numeric votes", () => {
     const stats = computeVoteStats(votes("?", "☕", "?"));
-    expect(stats).toEqual({ min: null, max: null, average: null, allAgree: false, numericCount: 0 });
+    expect(stats).toEqual({
+      min: null,
+      max: null,
+      average: null,
+      allAgree: false,
+      numericCount: 0,
+    });
   });
 
   it("handles an empty round", () => {
     const stats = computeVoteStats([]);
-    expect(stats).toEqual({ min: null, max: null, average: null, allAgree: false, numericCount: 0 });
+    expect(stats).toEqual({
+      min: null,
+      max: null,
+      average: null,
+      allAgree: false,
+      numericCount: 0,
+    });
   });
 });

@@ -73,7 +73,9 @@ function open(): void {
     for (const hook of connectHooks) hook();
   });
 
-  ws.addEventListener("message", (event: MessageEvent) => handleMessage(event.data));
+  ws.addEventListener("message", (event: MessageEvent) =>
+    handleMessage(event.data),
+  );
 
   ws.addEventListener("close", () => {
     connected = false;
@@ -92,7 +94,10 @@ function open(): void {
 
 function scheduleReconnect(): void {
   if (reconnectTimer) return;
-  const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempts, RECONNECT_MAX_MS);
+  const delay = Math.min(
+    RECONNECT_BASE_MS * 2 ** reconnectAttempts,
+    RECONNECT_MAX_MS,
+  );
   reconnectAttempts += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -113,7 +118,10 @@ export function disconnectSocket(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+  if (
+    ws &&
+    (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
+  ) {
     ws.close();
   }
 }
@@ -123,8 +131,16 @@ export function disconnectSocket(): void {
 // ---------------------------------------------------------------------------
 
 /** Encode + send (or buffer until open) one client request frame. */
-function send(event: ClientEnvelope["event"], payload: unknown, id?: string): void {
-  const envelope: ClientEnvelope = { kind: ENVELOPE_KIND.request, event, payload };
+function send(
+  event: ClientEnvelope["event"],
+  payload: unknown,
+  id?: string,
+): void {
+  const envelope: ClientEnvelope = {
+    kind: ENVELOPE_KIND.request,
+    event,
+    payload,
+  };
   if (id) envelope.id = id;
   const data = JSON.stringify(envelope);
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -163,7 +179,10 @@ function armAckTimer(id: string): void {
 }
 
 /** Send a correlated request and resolve with the matching ack payload (the Result object). */
-function request<T>(event: ClientEnvelope["event"], payload: unknown): Promise<T> {
+function request<T>(
+  event: ClientEnvelope["event"],
+  payload: unknown,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const id = crypto.randomUUID();
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
@@ -199,7 +218,9 @@ function handleMessage(data: unknown): void {
     clearTimeout(entry.timer);
     pending.delete(envelope.id);
     // Success carries the full Result object; failure is reshaped into the ErrorAck union.
-    entry.resolve(envelope.ok ? envelope.payload : { ok: false, error: envelope.error });
+    entry.resolve(
+      envelope.ok ? envelope.payload : { ok: false, error: envelope.error },
+    );
     return;
   }
 
@@ -215,10 +236,15 @@ function handleMessage(data: unknown): void {
 // Client -> Server helpers
 // ---------------------------------------------------------------------------
 
-export async function createRoom(displayName: string): Promise<CreateRoomResult> {
+export async function createRoom(
+  displayName: string,
+): Promise<CreateRoomResult> {
   const s = connectSocket();
   if (!s) {
-    return { ok: false, error: { code: "VALIDATION", message: "Socket unavailable." } };
+    return {
+      ok: false,
+      error: { code: "VALIDATION", message: "Socket unavailable." },
+    };
   }
   return request<CreateRoomResult>(C2S.createRoom, { displayName });
 }
@@ -232,7 +258,10 @@ export interface JoinRoomInput {
 export async function joinRoom(input: JoinRoomInput): Promise<JoinRoomResult> {
   const s = connectSocket();
   if (!s) {
-    return { ok: false, error: { code: "VALIDATION", message: "Socket unavailable." } };
+    return {
+      ok: false,
+      error: { code: "VALIDATION", message: "Socket unavailable." },
+    };
   }
   return request<JoinRoomResult>(C2S.joinRoom, input);
 }
@@ -276,7 +305,9 @@ export function onServerEvent(
 }
 
 /** Map of S2C event name -> handler, for bulk registration in a page. */
-export type ServerHandlers = Partial<Record<ServerEvent, (payload: never) => void>>;
+export type ServerHandlers = Partial<
+  Record<ServerEvent, (payload: never) => void>
+>;
 
 /**
  * Register many S2C listeners at once plus connection lifecycle hooks, returning a single
@@ -294,7 +325,12 @@ export function registerServerHandlers(
 
   for (const [event, handler] of Object.entries(handlers)) {
     if (!handler) continue;
-    offs.push(onServerEvent(event as ServerEvent, handler as (payload: unknown) => void));
+    offs.push(
+      onServerEvent(
+        event as ServerEvent,
+        handler as (payload: unknown) => void,
+      ),
+    );
   }
 
   if (lifecycle?.onConnect) {

@@ -37,7 +37,9 @@
     font-size: var(--font-size-lg);
     font-weight: 700;
     box-shadow: var(--shadow-sm);
-    transition: transform 0.1s ease, border-color 0.15s ease,
+    transition:
+      transform 0.1s ease,
+      border-color 0.15s ease,
       background 0.15s ease;
   }
 

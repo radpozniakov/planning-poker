@@ -64,8 +64,14 @@ describe("ConnectionRegistry", () => {
     const sock = fakeSocket();
     const id = conns.register(sock);
 
-    conns.sendAck(id, "c1", { ok: true, payload: { ok: true, roomCode: "ABCDEF" } });
-    conns.sendAck(id, "c2", { ok: false, error: { code: "ROOM_NOT_FOUND", message: "nope" } });
+    conns.sendAck(id, "c1", {
+      ok: true,
+      payload: { ok: true, roomCode: "ABCDEF" },
+    });
+    conns.sendAck(id, "c2", {
+      ok: false,
+      error: { code: "ROOM_NOT_FOUND", message: "nope" },
+    });
 
     expect(JSON.parse(sock.sent[0])).toMatchObject({
       kind: ENVELOPE_KIND.ack,

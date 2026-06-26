@@ -4,9 +4,9 @@ Short documents capturing significant architectural decisions in the BE service:
 context, the decision, and its consequences. Referenced from code comments by id
 (e.g. `ADR-001`) and from the [glossary](../glossary.md).
 
-| ID | Title | Status |
-|----|-------|--------|
-| [ADR-001](0001-domain-stays-socket-free.md) | The domain stays socket-free | Accepted |
+| ID                                                | Title                                                  | Status   |
+| ------------------------------------------------- | ------------------------------------------------------ | -------- |
+| [ADR-001](0001-domain-stays-socket-free.md)       | The domain stays socket-free                           | Accepted |
 | [ADR-002](0002-validate-every-inbound-message.md) | Validate every inbound message, reply instead of throw | Accepted |
 
 ## Conventions

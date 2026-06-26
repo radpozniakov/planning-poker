@@ -7,14 +7,14 @@ accounts, no database — rooms live in memory and are gone on restart, by desig
 
 ## Stack
 
-| Layer | Choice |
-|-------|--------|
-| Frontend | SvelteKit (adapter-static **SPA**, `ssr=false`), Svelte 5 runes, plain CSS, optional Bits UI |
-| Realtime | Native **WebSocket** over a JSON envelope contract (no socket.io); BE uses Hono's WS helper, FE uses the browser `WebSocket` API |
-| Backend | **Hono** (HTTP + WebSocket) on `@hono/node-server`, layered (entry → controllers/ws/domain), in-memory room registry, bundled to one file with esbuild — see [`BE/doc/glossary.md`](BE/doc/glossary.md) for the topology vocabulary and [`BE/doc/adr/`](BE/doc/adr/README.md) for the decisions behind it |
-| Contract | `@pp/shared` — types + zod schemas + event names shared by FE & BE (npm workspaces, no build step) |
-| Serving | FE container's nginx serves the static SPA and reverse-proxies `/ws` (+ `/health`) to the BE; two containers, no separate proxy. TLS, if needed, is terminated by a front proxy on the host |
-| Lint / Test | oxlint · Vitest |
+| Layer       | Choice                                                                                                                                                                                                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend    | SvelteKit (adapter-static **SPA**, `ssr=false`), Svelte 5 runes, plain CSS, optional Bits UI                                                                                                                                                                                                              |
+| Realtime    | Native **WebSocket** over a JSON envelope contract (no socket.io); BE uses Hono's WS helper, FE uses the browser `WebSocket` API                                                                                                                                                                          |
+| Backend     | **Hono** (HTTP + WebSocket) on `@hono/node-server`, layered (entry → controllers/ws/domain), in-memory room registry, bundled to one file with esbuild — see [`BE/doc/glossary.md`](BE/doc/glossary.md) for the topology vocabulary and [`BE/doc/adr/`](BE/doc/adr/README.md) for the decisions behind it |
+| Contract    | `@pp/shared` — types + zod schemas + event names shared by FE & BE (npm workspaces, no build step)                                                                                                                                                                                                        |
+| Serving     | FE container's nginx serves the static SPA and reverse-proxies `/ws` (+ `/health`) to the BE; two containers, no separate proxy. TLS, if needed, is terminated by a front proxy on the host                                                                                                               |
+| Lint / Test | oxlint · Vitest                                                                                                                                                                                                                                                                                           |
 
 Monorepo via npm workspaces: `shared/`, `BE/`, `FE/`.
 

@@ -52,7 +52,9 @@ function rpc(sock: WebSocket, event: string, payload: unknown): Promise<any> {
       }
     };
     sock.on("message", onMsg);
-    sock.send(JSON.stringify({ kind: ENVELOPE_KIND.request, event, payload, id }));
+    sock.send(
+      JSON.stringify({ kind: ENVELOPE_KIND.request, event, payload, id }),
+    );
   });
 }
 
@@ -83,7 +85,10 @@ describe("WebSocket gateway (integration)", () => {
     // --- joinRoom: both connections receive an updated presence broadcast ---
     const hostPresence = nextEvent(host, S2C.presence);
     const guest = await connect();
-    const joinAck = await rpc(guest, C2S.joinRoom, { roomCode, displayName: "Guest" });
+    const joinAck = await rpc(guest, C2S.joinRoom, {
+      roomCode,
+      displayName: "Guest",
+    });
     expect(joinAck.ok).toBe(true);
     expect(joinAck.payload.state.participants).toHaveLength(2);
     const presence = await hostPresence;
@@ -99,7 +104,9 @@ describe("WebSocket gateway (integration)", () => {
       }),
     );
     const task = await guestTask;
-    expect(task.payload.task).toMatchObject({ description: "Estimate the widget" });
+    expect(task.payload.task).toMatchObject({
+      description: "Estimate the widget",
+    });
 
     // --- castVote (guest): presence shows the voted dot, never the value ---
     const votedPresence = nextEvent(host, S2C.presence);
@@ -111,7 +118,9 @@ describe("WebSocket gateway (integration)", () => {
       }),
     );
     const voted = await votedPresence;
-    const guestEntry = voted.payload.participants.find((p: any) => p.displayName === "Guest");
+    const guestEntry = voted.payload.participants.find(
+      (p: any) => p.displayName === "Guest",
+    );
     expect(guestEntry.hasVoted).toBe(true);
     expect(guestEntry).not.toHaveProperty("cardValue");
 
@@ -125,7 +134,12 @@ describe("WebSocket gateway (integration)", () => {
       }),
     );
     const reveal = await revealed;
-    expect(reveal.payload.stats).toMatchObject({ min: 5, max: 5, average: 5, allAgree: true });
+    expect(reveal.payload.stats).toMatchObject({
+      min: 5,
+      max: 5,
+      average: 5,
+      allAgree: true,
+    });
 
     // --- disconnect: closing the guest removes it and re-broadcasts presence ---
     const afterLeave = nextEvent(host, S2C.presence);
@@ -136,14 +150,19 @@ describe("WebSocket gateway (integration)", () => {
 
   it("rejects a join for an unknown room via the ack channel", async () => {
     const sock = await connect();
-    const ack = await rpc(sock, C2S.joinRoom, { roomCode: "ZZZZZZ", displayName: "Nobody" });
+    const ack = await rpc(sock, C2S.joinRoom, {
+      roomCode: "ZZZZZZ",
+      displayName: "Nobody",
+    });
     expect(ack.ok).toBe(false);
     expect(ack.error.code).toBe("ROOM_NOT_FOUND");
   });
 
   it("closes the connection (1009) on an oversized frame", async () => {
     const sock = await connect();
-    const closed = new Promise<number>((resolve) => sock.on("close", (code) => resolve(code)));
+    const closed = new Promise<number>((resolve) =>
+      sock.on("close", (code) => resolve(code)),
+    );
     sock.send("x".repeat(100_001)); // > MAX_FRAME_BYTES (100_000)
     expect(await closed).toBe(1009);
   });
@@ -151,7 +170,13 @@ describe("WebSocket gateway (integration)", () => {
   it("survives malformed and unknown-event frames without crashing", async () => {
     const sock = await connect();
     sock.send("{ not valid json");
-    sock.send(JSON.stringify({ kind: ENVELOPE_KIND.request, event: "bogus", payload: {} }));
+    sock.send(
+      JSON.stringify({
+        kind: ENVELOPE_KIND.request,
+        event: "bogus",
+        payload: {},
+      }),
+    );
     // The server is still responsive: a fresh request still acks.
     const ack = await rpc(sock, C2S.createRoom, { displayName: "Survivor" });
     expect(ack.ok).toBe(true);

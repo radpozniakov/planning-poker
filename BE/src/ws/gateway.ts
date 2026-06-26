@@ -11,7 +11,10 @@ import { dispatch, handleDisconnect } from "./router";
  * each frame, and runs the disconnect path on close. Everything below speaks the
  * `@pp/shared` envelope contract; the registries never see a socket type beyond `Sendable`.
  */
-export function createWsHandler(registry: RoomRegistry, connections: ConnectionRegistry) {
+export function createWsHandler(
+  registry: RoomRegistry,
+  connections: ConnectionRegistry,
+) {
   // The factory runs once per connection, so `connectionId` is per-connection state.
   return (_c: Context) => {
     let connectionId: string | null = null;
@@ -41,7 +44,10 @@ export function createWsHandler(registry: RoomRegistry, connections: ConnectionR
           return;
         }
 
-        const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBuffer);
+        const text =
+          typeof raw === "string"
+            ? raw
+            : new TextDecoder().decode(raw as ArrayBuffer);
         if (!text) return;
 
         const decoded = decodeClientFrame(text);

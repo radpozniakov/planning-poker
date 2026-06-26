@@ -10,7 +10,7 @@
 Every WebSocket frame from a client is untrusted input. Without a disciplined boundary,
 malformed or hostile payloads either crash a handler (an uncaught throw can take down
 the connection or process) or silently corrupt room state. We need one predictable
-contract for *where* validation happens and *what* happens on failure.
+contract for _where_ validation happens and _what_ happens on failure.
 
 The data also arrives in two distinct trust shapes: the **frame** (the envelope:
 `kind`/`event`/`id`) and the **payload** (the per-event body), which differ per event.
@@ -32,23 +32,27 @@ The data also arrives in two distinct trust shapes: the **frame** (the envelope:
    single source of truth for both FE and BE.
 
 On failure the handler **replies**, it does not throw:
+
 - correlated requests (carry an `id`) get an error **ack** (`replyError`);
 - fire-and-forget commands get an `errorEvent` push (`emitError`).
 
 ## Consequences
 
 **Positive**
+
 - One uniform failure mode: a bad message yields a typed error reply, never a crash.
 - `unknown` payloads are narrowed to typed data exactly once, at the boundary; the domain
   receives only validated values.
 - FE and BE cannot drift, because both import the same zod schemas and `LIMITS`.
 
 **Negative / costs**
+
 - Every event needs a schema and an explicit validate step — boilerplate that must be
   kept in sync as events are added.
 - Silent-drop on malformed frames means a buggy client gets no feedback pre-handshake;
   acceptable here, but worth noting for debugging.
 
 **Implications**
+
 - These are shape/size guards, not rate-limiting or auth. Abuse limits beyond `LIMITS`
   (per-connection throttling, etc.) remain out of scope for this ADR.

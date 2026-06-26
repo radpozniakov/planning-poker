@@ -15,7 +15,13 @@ export function computeVoteStats(votes: Iterable<Vote>): VoteStats {
 
   const numericCount = numeric.length;
   if (numericCount === 0) {
-    return { min: null, max: null, average: null, allAgree: false, numericCount: 0 };
+    return {
+      min: null,
+      max: null,
+      average: null,
+      allAgree: false,
+      numericCount: 0,
+    };
   }
 
   const min = Math.min(...numeric);

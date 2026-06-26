@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { RoomRegistry } from "./rooms";
 
 /** Narrow a registry Result to its success variant, failing the test otherwise. */
-function assertOk<R extends { ok: boolean }>(r: R): asserts r is Extract<R, { ok: true }> {
+function assertOk<R extends { ok: boolean }>(
+  r: R,
+): asserts r is Extract<R, { ok: true }> {
   if (!r.ok) {
     throw new Error(`expected ok result, got error: ${JSON.stringify(r)}`);
   }
@@ -87,7 +89,9 @@ describe("RoomRegistry — voting rules", () => {
     reg.castVote(code, bob.participant.id, 5);
 
     // Pre-reveal: stored votes are hidden.
-    expect([...(reg.getRoom(code)?.votes.values() ?? [])].every((v) => v.hidden)).toBe(true);
+    expect(
+      [...(reg.getRoom(code)?.votes.values() ?? [])].every((v) => v.hidden),
+    ).toBe(true);
 
     const revealed = reg.reveal(code, created.participant.id);
     assertOk(revealed);
@@ -148,7 +152,12 @@ describe("public-DTO wire boundary (§3a)", () => {
 
     // Shape check: PublicParticipant only.
     const first = reg.toPublic(room)[0]!;
-    expect(Object.keys(first).toSorted()).toEqual(["displayName", "hasVoted", "id", "isHost"]);
+    expect(Object.keys(first).toSorted()).toEqual([
+      "displayName",
+      "hasVoted",
+      "id",
+      "isHost",
+    ]);
     expect(first).not.toHaveProperty("connectionId");
 
     // cardValue is allowed to appear ONLY in the revealed payload.
@@ -188,7 +197,9 @@ describe("disconnect / host transfer (§3b)", () => {
     const left = reg.leave("s1");
     expect(left?.hostChanged).toBe(true);
     expect(left?.hostParticipantId).toBe(carol.participant.id);
-    expect(reg.getRoom(code)?.participants.get(carol.participant.id)?.isHost).toBe(true);
+    expect(
+      reg.getRoom(code)?.participants.get(carol.participant.id)?.isHost,
+    ).toBe(true);
   });
 
   it("deletes the room when the last participant leaves", () => {

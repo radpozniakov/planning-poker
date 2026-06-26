@@ -61,7 +61,9 @@ export function handleDisconnect(
         hostParticipantId: result.hostParticipantId,
       });
     }
-    connections.broadcastToRoom(room.code, S2C.presence, { participants: registry.toPublic(room) });
+    connections.broadcastToRoom(room.code, S2C.presence, {
+      participants: registry.toPublic(room),
+    });
   }
   connections.unregister(connectionId);
 }
@@ -77,10 +79,24 @@ function handleCreateRoom(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(createRoomSchema, env.payload);
-  if (!parsed.ok) return replyError(connections, connectionId, env.id, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return replyError(
+      connections,
+      connectionId,
+      env.id,
+      "VALIDATION",
+      parsed.message,
+    );
 
   const result = registry.createRoom(connectionId, parsed.data.displayName);
-  if (!result.ok) return replyError(connections, connectionId, env.id, result.code, result.message);
+  if (!result.ok)
+    return replyError(
+      connections,
+      connectionId,
+      env.id,
+      result.code,
+      result.message,
+    );
 
   const { room, participant } = result;
   const ack: CreateRoomResult = {
@@ -89,8 +105,11 @@ function handleCreateRoom(
     participantId: participant.id,
     isHost: true,
   };
-  if (env.id) connections.sendAck(connectionId, env.id, { ok: true, payload: ack });
-  connections.broadcastToRoom(room.code, S2C.presence, { participants: registry.toPublic(room) });
+  if (env.id)
+    connections.sendAck(connectionId, env.id, { ok: true, payload: ack });
+  connections.broadcastToRoom(room.code, S2C.presence, {
+    participants: registry.toPublic(room),
+  });
 }
 
 function handleJoinRoom(
@@ -100,11 +119,30 @@ function handleJoinRoom(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(joinRoomSchema, env.payload);
-  if (!parsed.ok) return replyError(connections, connectionId, env.id, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return replyError(
+      connections,
+      connectionId,
+      env.id,
+      "VALIDATION",
+      parsed.message,
+    );
 
   const { roomCode, displayName, participantId } = parsed.data;
-  const result = registry.joinRoom(connectionId, roomCode, displayName, participantId);
-  if (!result.ok) return replyError(connections, connectionId, env.id, result.code, result.message);
+  const result = registry.joinRoom(
+    connectionId,
+    roomCode,
+    displayName,
+    participantId,
+  );
+  if (!result.ok)
+    return replyError(
+      connections,
+      connectionId,
+      env.id,
+      result.code,
+      result.message,
+    );
 
   const { room, participant } = result;
   const ack: JoinRoomResult = {
@@ -112,8 +150,11 @@ function handleJoinRoom(
     participantId: participant.id,
     state: registry.buildRoomState(room),
   };
-  if (env.id) connections.sendAck(connectionId, env.id, { ok: true, payload: ack });
-  connections.broadcastToRoom(room.code, S2C.presence, { participants: registry.toPublic(room) });
+  if (env.id)
+    connections.sendAck(connectionId, env.id, { ok: true, payload: ack });
+  connections.broadcastToRoom(room.code, S2C.presence, {
+    participants: registry.toPublic(room),
+  });
 }
 
 function handleSetTask(
@@ -123,17 +164,33 @@ function handleSetTask(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(setTaskSchema, env.payload);
-  if (!parsed.ok) return emitError(connections, connectionId, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return emitError(connections, connectionId, "VALIDATION", parsed.message);
 
   const ctx = registry.contextFor(connectionId);
-  if (!ctx) return emitError(connections, connectionId, "NOT_IN_ROOM", "join a room first");
+  if (!ctx)
+    return emitError(
+      connections,
+      connectionId,
+      "NOT_IN_ROOM",
+      "join a room first",
+    );
 
-  const result = registry.setTask(ctx.roomCode, ctx.participantId, parsed.data.description);
-  if (!result.ok) return emitError(connections, connectionId, result.code, result.message);
+  const result = registry.setTask(
+    ctx.roomCode,
+    ctx.participantId,
+    parsed.data.description,
+  );
+  if (!result.ok)
+    return emitError(connections, connectionId, result.code, result.message);
 
   const { room } = result;
-  connections.broadcastToRoom(room.code, S2C.taskUpdated, { task: room.currentTask });
-  connections.broadcastToRoom(room.code, S2C.presence, { participants: registry.toPublic(room) });
+  connections.broadcastToRoom(room.code, S2C.taskUpdated, {
+    task: room.currentTask,
+  });
+  connections.broadcastToRoom(room.code, S2C.presence, {
+    participants: registry.toPublic(room),
+  });
 }
 
 function handleCastVote(
@@ -143,13 +200,25 @@ function handleCastVote(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(castVoteSchema, env.payload);
-  if (!parsed.ok) return emitError(connections, connectionId, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return emitError(connections, connectionId, "VALIDATION", parsed.message);
 
   const ctx = registry.contextFor(connectionId);
-  if (!ctx) return emitError(connections, connectionId, "NOT_IN_ROOM", "join a room first");
+  if (!ctx)
+    return emitError(
+      connections,
+      connectionId,
+      "NOT_IN_ROOM",
+      "join a room first",
+    );
 
-  const result = registry.castVote(ctx.roomCode, ctx.participantId, parsed.data.cardValue);
-  if (!result.ok) return emitError(connections, connectionId, result.code, result.message);
+  const result = registry.castVote(
+    ctx.roomCode,
+    ctx.participantId,
+    parsed.data.cardValue,
+  );
+  if (!result.ok)
+    return emitError(connections, connectionId, result.code, result.message);
 
   // Broadcast presence only — the "voted" dot, never the value.
   connections.broadcastToRoom(result.room.code, S2C.presence, {
@@ -164,13 +233,21 @@ function handleReveal(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(revealSchema, env.payload);
-  if (!parsed.ok) return emitError(connections, connectionId, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return emitError(connections, connectionId, "VALIDATION", parsed.message);
 
   const ctx = registry.contextFor(connectionId);
-  if (!ctx) return emitError(connections, connectionId, "NOT_IN_ROOM", "join a room first");
+  if (!ctx)
+    return emitError(
+      connections,
+      connectionId,
+      "NOT_IN_ROOM",
+      "join a room first",
+    );
 
   const result = registry.reveal(ctx.roomCode, ctx.participantId);
-  if (!result.ok) return emitError(connections, connectionId, result.code, result.message);
+  if (!result.ok)
+    return emitError(connections, connectionId, result.code, result.message);
 
   connections.broadcastToRoom(result.room.code, S2C.revealed, {
     votes: result.votes,
@@ -185,17 +262,27 @@ function handleReset(
   connections: ConnectionRegistry,
 ): void {
   const parsed = validate(resetSchema, env.payload);
-  if (!parsed.ok) return emitError(connections, connectionId, "VALIDATION", parsed.message);
+  if (!parsed.ok)
+    return emitError(connections, connectionId, "VALIDATION", parsed.message);
 
   const ctx = registry.contextFor(connectionId);
-  if (!ctx) return emitError(connections, connectionId, "NOT_IN_ROOM", "join a room first");
+  if (!ctx)
+    return emitError(
+      connections,
+      connectionId,
+      "NOT_IN_ROOM",
+      "join a room first",
+    );
 
   const result = registry.reset(ctx.roomCode, ctx.participantId);
-  if (!result.ok) return emitError(connections, connectionId, result.code, result.message);
+  if (!result.ok)
+    return emitError(connections, connectionId, result.code, result.message);
 
   const { room } = result;
   connections.broadcastToRoom(room.code, S2C.roundReset, {});
-  connections.broadcastToRoom(room.code, S2C.presence, { participants: registry.toPublic(room) });
+  connections.broadcastToRoom(room.code, S2C.presence, {
+    participants: registry.toPublic(room),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +308,10 @@ function replyError(
   message: string,
 ): void {
   if (id) {
-    connections.sendAck(connectionId, id, { ok: false, error: { code, message } });
+    connections.sendAck(connectionId, id, {
+      ok: false,
+      error: { code, message },
+    });
     return;
   }
   emitError(connections, connectionId, code, message);

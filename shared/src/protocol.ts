@@ -40,7 +40,12 @@ export interface ServerEventEnvelope {
 /** Server -> Client reply to a correlated request, matched by `id`. */
 export type ServerAckEnvelope =
   | { kind: typeof ENVELOPE_KIND.ack; id: string; ok: true; payload: unknown }
-  | { kind: typeof ENVELOPE_KIND.ack; id: string; ok: false; error: ErrorEventPayload };
+  | {
+      kind: typeof ENVELOPE_KIND.ack;
+      id: string;
+      ok: false;
+      error: ErrorEventPayload;
+    };
 
 export type ServerEnvelope = ServerEventEnvelope | ServerAckEnvelope;
 

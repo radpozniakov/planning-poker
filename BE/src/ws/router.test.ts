@@ -16,14 +16,32 @@ function fakeSocket(): Sendable & { sent: any[] } {
   };
 }
 
-function req(event: string, payload: unknown, id?: string): ParsedClientEnvelope {
-  return { kind: ENVELOPE_KIND.request, event, payload, ...(id ? { id } : {}) } as ParsedClientEnvelope;
+function req(
+  event: string,
+  payload: unknown,
+  id?: string,
+): ParsedClientEnvelope {
+  return {
+    kind: ENVELOPE_KIND.request,
+    event,
+    payload,
+    ...(id ? { id } : {}),
+  } as ParsedClientEnvelope;
 }
 
 /** Create a room and return the host's connectionId + room code. */
-function createRoom(rooms: RoomRegistry, conns: ConnectionRegistry, ws: Sendable & { sent: any[] }) {
+function createRoom(
+  rooms: RoomRegistry,
+  conns: ConnectionRegistry,
+  ws: Sendable & { sent: any[] },
+) {
   const id = conns.register(ws);
-  dispatch(id, req(C2S.createRoom, { displayName: "Host" }, "create"), rooms, conns);
+  dispatch(
+    id,
+    req(C2S.createRoom, { displayName: "Host" }, "create"),
+    rooms,
+    conns,
+  );
   const code: string = ws.sent[0].payload.roomCode;
   return { id, code };
 }
@@ -34,7 +52,12 @@ describe("router dispatch", () => {
     const conns = new ConnectionRegistry(rooms);
     const ws = fakeSocket();
     const id = conns.register(ws);
-    dispatch(id, req(C2S.createRoom, { displayName: "Host" }, "c1"), rooms, conns);
+    dispatch(
+      id,
+      req(C2S.createRoom, { displayName: "Host" }, "c1"),
+      rooms,
+      conns,
+    );
     const ack = ws.sent.find((m) => m.kind === ENVELOPE_KIND.ack);
     expect(ack).toMatchObject({ id: "c1", ok: true });
     expect(ack.payload).toMatchObject({ ok: true, isHost: true });
@@ -48,7 +71,11 @@ describe("router dispatch", () => {
     const id = conns.register(ws);
     dispatch(id, req(C2S.createRoom, { displayName: "" }, "c1"), rooms, conns);
     expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0]).toMatchObject({ kind: ENVELOPE_KIND.ack, id: "c1", ok: false });
+    expect(ws.sent[0]).toMatchObject({
+      kind: ENVELOPE_KIND.ack,
+      id: "c1",
+      ok: false,
+    });
     expect(ws.sent[0].error.code).toBe("VALIDATION");
   });
 
@@ -57,8 +84,17 @@ describe("router dispatch", () => {
     const conns = new ConnectionRegistry(rooms);
     const ws = fakeSocket();
     const id = conns.register(ws);
-    dispatch(id, req(C2S.joinRoom, { roomCode: "ZZZZZZ", displayName: "X" }, "j1"), rooms, conns);
-    expect(ws.sent[0]).toMatchObject({ kind: ENVELOPE_KIND.ack, id: "j1", ok: false });
+    dispatch(
+      id,
+      req(C2S.joinRoom, { roomCode: "ZZZZZZ", displayName: "X" }, "j1"),
+      rooms,
+      conns,
+    );
+    expect(ws.sent[0]).toMatchObject({
+      kind: ENVELOPE_KIND.ack,
+      id: "j1",
+      ok: false,
+    });
     expect(ws.sent[0].error.code).toBe("ROOM_NOT_FOUND");
   });
 
@@ -67,9 +103,17 @@ describe("router dispatch", () => {
     const conns = new ConnectionRegistry(rooms);
     const ws = fakeSocket();
     const id = conns.register(ws);
-    dispatch(id, req(C2S.setTask, { roomCode: "ABCDEF", description: "x" }), rooms, conns);
+    dispatch(
+      id,
+      req(C2S.setTask, { roomCode: "ABCDEF", description: "x" }),
+      rooms,
+      conns,
+    );
     expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0]).toMatchObject({ kind: ENVELOPE_KIND.event, event: S2C.errorEvent });
+    expect(ws.sent[0]).toMatchObject({
+      kind: ENVELOPE_KIND.event,
+      event: S2C.errorEvent,
+    });
     expect(ws.sent[0].payload.code).toBe("NOT_IN_ROOM");
   });
 
@@ -79,9 +123,17 @@ describe("router dispatch", () => {
     const ws = fakeSocket();
     const { id, code } = createRoom(rooms, conns, ws);
     ws.sent.length = 0;
-    dispatch(id, req(C2S.castVote, { roomCode: code, cardValue: 999 }), rooms, conns);
+    dispatch(
+      id,
+      req(C2S.castVote, { roomCode: code, cardValue: 999 }),
+      rooms,
+      conns,
+    );
     expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0]).toMatchObject({ kind: ENVELOPE_KIND.event, event: S2C.errorEvent });
+    expect(ws.sent[0]).toMatchObject({
+      kind: ENVELOPE_KIND.event,
+      event: S2C.errorEvent,
+    });
     expect(ws.sent[0].payload.code).toBe("VALIDATION");
   });
 
@@ -92,10 +144,23 @@ describe("router dispatch", () => {
     const guestWs = fakeSocket();
     const { code } = createRoom(rooms, conns, hostWs);
     const guestId = conns.register(guestWs);
-    dispatch(guestId, req(C2S.joinRoom, { roomCode: code, displayName: "Guest" }, "j1"), rooms, conns);
+    dispatch(
+      guestId,
+      req(C2S.joinRoom, { roomCode: code, displayName: "Guest" }, "j1"),
+      rooms,
+      conns,
+    );
     guestWs.sent.length = 0;
-    dispatch(guestId, req(C2S.setTask, { roomCode: code, description: "x" }), rooms, conns);
-    expect(guestWs.sent[0]).toMatchObject({ kind: ENVELOPE_KIND.event, event: S2C.errorEvent });
+    dispatch(
+      guestId,
+      req(C2S.setTask, { roomCode: code, description: "x" }),
+      rooms,
+      conns,
+    );
+    expect(guestWs.sent[0]).toMatchObject({
+      kind: ENVELOPE_KIND.event,
+      event: S2C.errorEvent,
+    });
     expect(guestWs.sent[0].payload.code).toBe("NOT_HOST");
   });
 
@@ -106,8 +171,14 @@ describe("router dispatch", () => {
     const guestWs = fakeSocket();
     const { id: hostId, code } = createRoom(rooms, conns, hostWs);
     const guestId = conns.register(guestWs);
-    dispatch(guestId, req(C2S.joinRoom, { roomCode: code, displayName: "Guest" }, "j1"), rooms, conns);
-    const guestParticipantId: string = guestWs.sent.find((m) => m.id === "j1").payload.participantId;
+    dispatch(
+      guestId,
+      req(C2S.joinRoom, { roomCode: code, displayName: "Guest" }, "j1"),
+      rooms,
+      conns,
+    );
+    const guestParticipantId: string = guestWs.sent.find((m) => m.id === "j1")
+      .payload.participantId;
     guestWs.sent.length = 0;
 
     handleDisconnect(hostId, rooms, conns);

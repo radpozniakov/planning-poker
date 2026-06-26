@@ -34,12 +34,20 @@ describe("decodeClientFrame", () => {
   });
 
   it("rejects an unknown event name", () => {
-    const raw = JSON.stringify({ kind: ENVELOPE_KIND.request, event: "bogus", payload: {} });
+    const raw = JSON.stringify({
+      kind: ENVELOPE_KIND.request,
+      event: "bogus",
+      payload: {},
+    });
     expect(decodeClientFrame(raw).ok).toBe(false);
   });
 
   it("rejects the wrong envelope kind", () => {
-    const raw = JSON.stringify({ kind: ENVELOPE_KIND.event, event: C2S.reveal, payload: {} });
+    const raw = JSON.stringify({
+      kind: ENVELOPE_KIND.event,
+      event: C2S.reveal,
+      payload: {},
+    });
     expect(decodeClientFrame(raw).ok).toBe(false);
   });
 

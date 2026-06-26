@@ -44,7 +44,10 @@ export interface LeaveResult {
  */
 export class RoomRegistry {
   private readonly rooms = new Map<string, Room>();
-  private readonly bySocket = new Map<string, { roomCode: string; participantId: string }>();
+  private readonly bySocket = new Map<
+    string,
+    { roomCode: string; participantId: string }
+  >();
 
   // -------------------------------------------------------------------------
   // Lookups
@@ -55,7 +58,9 @@ export class RoomRegistry {
   }
 
   /** Resolve which room/participant a live socket belongs to (trusted caller identity). */
-  contextFor(connectionId: string): { roomCode: string; participantId: string } | undefined {
+  contextFor(
+    connectionId: string,
+  ): { roomCode: string; participantId: string } | undefined {
     return this.bySocket.get(connectionId);
   }
 
@@ -109,7 +114,10 @@ export class RoomRegistry {
     now: number = Date.now(),
   ): Result<{ room: Room; participant: Participant }> {
     if (this.rooms.size >= LIMITS.maxRooms) {
-      return err("TOO_MANY_ROOMS", "the server is at capacity, try again later");
+      return err(
+        "TOO_MANY_ROOMS",
+        "the server is at capacity, try again later",
+      );
     }
     const code = this.generateUniqueCode();
     const participant: Participant = {
@@ -130,7 +138,10 @@ export class RoomRegistry {
       createdAt: now,
     };
     this.rooms.set(code, room);
-    this.bySocket.set(connectionId, { roomCode: code, participantId: participant.id });
+    this.bySocket.set(connectionId, {
+      roomCode: code,
+      participantId: participant.id,
+    });
     return ok({ room, participant });
   }
 
@@ -144,7 +155,10 @@ export class RoomRegistry {
     const code = normalizeCode(roomCode);
     const room = this.rooms.get(code);
     if (!room) {
-      return err("ROOM_NOT_FOUND", "that room does not exist (it may have expired)");
+      return err(
+        "ROOM_NOT_FOUND",
+        "that room does not exist (it may have expired)",
+      );
     }
 
     // Reconnection: rebind the existing participant to the new socket, preserving
@@ -173,7 +187,10 @@ export class RoomRegistry {
       joinedAt: now,
     };
     room.participants.set(participant.id, participant);
-    this.bySocket.set(connectionId, { roomCode: code, participantId: participant.id });
+    this.bySocket.set(connectionId, {
+      roomCode: code,
+      participantId: participant.id,
+    });
     return ok({ room, participant, reconnected: false });
   }
 
@@ -226,7 +243,11 @@ export class RoomRegistry {
     };
   }
 
-  setTask(roomCode: string, participantId: string, description: string): Result<{ room: Room }> {
+  setTask(
+    roomCode: string,
+    participantId: string,
+    description: string,
+  ): Result<{ room: Room }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
     if (room.hostParticipantId !== participantId) {
@@ -237,13 +258,20 @@ export class RoomRegistry {
     return ok({ room });
   }
 
-  castVote(roomCode: string, participantId: string, cardValue: CardValue): Result<{ room: Room }> {
+  castVote(
+    roomCode: string,
+    participantId: string,
+    cardValue: CardValue,
+  ): Result<{ room: Room }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
     const participant = room.participants.get(participantId);
     if (!participant) return err("NOT_IN_ROOM", "you are not in this room");
     if (room.revealed) {
-      return err("ALREADY_REVEALED", "voting is closed — the round was already revealed");
+      return err(
+        "ALREADY_REVEALED",
+        "voting is closed — the round was already revealed",
+      );
     }
     // Overwrite any prior vote (re-pick allowed).
     const vote: Vote = { participantId, cardValue, hidden: true };
@@ -255,7 +283,11 @@ export class RoomRegistry {
   reveal(
     roomCode: string,
     participantId: string,
-  ): Result<{ room: Room; votes: Vote[]; stats: ReturnType<typeof computeVoteStats> }> {
+  ): Result<{
+    room: Room;
+    votes: Vote[];
+    stats: ReturnType<typeof computeVoteStats>;
+  }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
     if (room.hostParticipantId !== participantId) {

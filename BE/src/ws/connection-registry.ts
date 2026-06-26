@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { ENVELOPE_KIND, S2C, type ErrorEventPayload, type ServerEnvelope } from "@pp/shared";
+import {
+  ENVELOPE_KIND,
+  S2C,
+  type ErrorEventPayload,
+  type ServerEnvelope,
+} from "@pp/shared";
 import type { RoomRegistry } from "../domain/rooms";
 
 type S2CEvent = (typeof S2C)[keyof typeof S2C];
@@ -56,7 +61,11 @@ export class ConnectionRegistry {
 
   /** Push an S2C event to a single connection. */
   sendEvent(connectionId: string, event: S2CEvent, payload: unknown): void {
-    this.sendEnvelope(connectionId, { kind: ENVELOPE_KIND.event, event, payload });
+    this.sendEnvelope(connectionId, {
+      kind: ENVELOPE_KIND.event,
+      event,
+      payload,
+    });
   }
 
   /** Reply to a correlated request (createRoom/joinRoom), matched by `id` on the FE. */

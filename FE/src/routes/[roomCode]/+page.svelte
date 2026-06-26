@@ -66,7 +66,10 @@
   // retained so a transient socket reconnect can silently re-join the room.
   let joinName: string | null = null;
 
-  async function doJoin(displayName: string, participantId?: string): Promise<void> {
+  async function doJoin(
+    displayName: string,
+    participantId?: string,
+  ): Promise<void> {
     if (joining) return;
     joining = true;
     setError(null);
@@ -203,11 +206,7 @@
       <button class="btn" type="button" onclick={copyLink}>
         {copied ? "Copied ✓" : "Copy link"}
       </button>
-      <button
-        class="btn"
-        type="button"
-        onclick={() => goto("/")}
-      >
+      <button class="btn" type="button" onclick={() => goto("/")}>
         Leave
       </button>
     </div>
