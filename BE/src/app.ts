@@ -25,8 +25,18 @@ export interface BuiltApp {
  * tests can supply (and inspect) their own registries. `server.ts` calls this with none.
  */
 export function createApp(deps: Partial<AppDeps> = {}): BuiltApp {
-  const registry = deps.registry ?? new RoomRegistry();
+  // When a grace-deletion timer fires for an abandoned room, close any sockets it orphaned.
+  // Late-bound via a holder so the registry (constructed first) can call back into the
+  // connection registry (constructed second) — neither default dep can reference the other
+  // at construction time. For a solo-host refresh this never fires (the rejoin cancels it).
+  let connectionsRef: ConnectionRegistry | undefined;
+  const registry =
+    deps.registry ??
+    new RoomRegistry(undefined, (_roomCode, connectionIds) => {
+      connectionsRef?.closeConnections(connectionIds);
+    });
   const connections = deps.connections ?? new ConnectionRegistry(registry);
+  connectionsRef = connections;
 
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });

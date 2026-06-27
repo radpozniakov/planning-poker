@@ -28,10 +28,41 @@ function err(code: ErrorCode, message: string): Err {
 export interface LeaveResult {
   roomCode: string;
   removedParticipantId: string;
-  roomDeleted: boolean;
+  /**
+   * No one is left to notify: the room is either truly empty (its deletion scheduled for the
+   * end of the grace window — the room object still exists for `roomGraceMs` so a refreshing
+   * solo host can rejoin) or already gone. Either way the transport layer skips broadcasting.
+   * Named for the broadcast contract, not literal object lifetime (the room may still exist).
+   */
+  roomGone: boolean;
   hostChanged: boolean;
   hostParticipantId: string | null;
 }
+
+/**
+ * Timer surface the registry needs to defer empty-room deletion. Injected so tests can
+ * drive it with fake timers and the domain never imports node globals. Matches the shape
+ * of `setTimeout`/`clearTimeout` (the returned handle is opaque to the domain).
+ */
+export interface Scheduler {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+/**
+ * Called when a grace timer actually fires and an empty room is deleted asynchronously, so
+ * the transport layer can close any sockets the room left behind. Mirrors what `reapExpired`
+ * returns synchronously — the domain hands back opaque connectionIds, never a socket
+ * (ADR-001). For a solo-host refresh the survivor rejoined and cancelled the timer, so this
+ * never fires; it only fires for rooms that were genuinely abandoned.
+ */
+export type OnRoomDeleted = (roomCode: string, connectionIds: string[]) => void;
+
+const defaultScheduler: Scheduler = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) =>
+    clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 
 /**
  * In-memory room registry (no persistence — ephemeral by design, spec line 38).
@@ -48,6 +79,18 @@ export class RoomRegistry {
     string,
     { roomCode: string; participantId: string }
   >();
+  /** Pending grace-deletion timers, keyed by room code. Present only while a room is empty. */
+  private readonly pendingDeletes = new Map<string, unknown>();
+
+  /**
+   * @param scheduler   Timer surface for deferred empty-room deletion (default: node timers).
+   * @param onRoomDeleted Notified when a grace timer fires and deletes an abandoned room, so
+   *                      the transport can close its orphaned sockets. No-op by default.
+   */
+  constructor(
+    private readonly scheduler: Scheduler = defaultScheduler,
+    private readonly onRoomDeleted: OnRoomDeleted = () => {},
+  ) {}
 
   // -------------------------------------------------------------------------
   // Lookups
@@ -137,6 +180,7 @@ export class RoomRegistry {
       votes: new Map(),
       createdAt: now,
       lastActivityAt: now,
+      parkedParticipantId: null,
     };
     this.rooms.set(code, room);
     this.bySocket.set(connectionId, {
@@ -162,11 +206,20 @@ export class RoomRegistry {
       );
     }
 
+    // Any (re)join rescues a room from a pending grace-deletion — the timer must not fire now
+    // that someone is arriving. This is the solo-host refresh case and the brand-new-joiner
+    // race. Whether the parked participant SURVIVES depends on who is arriving (below).
+    this.cancelGraceDeletion(code);
+
     // Reconnection: rebind the existing participant to the new socket, preserving
     // joinedAt (so host-transfer ordering stays stable) and host status.
     if (participantId) {
       const existing = room.participants.get(participantId);
       if (existing) {
+        // Rebinding the parked participant un-parks the room (the refresh round-trip).
+        if (room.parkedParticipantId === participantId) {
+          room.parkedParticipantId = null;
+        }
         this.bySocket.delete(existing.connectionId);
         existing.connectionId = connectionId;
         existing.displayName = displayName;
@@ -176,19 +229,27 @@ export class RoomRegistry {
       }
     }
 
-    // Fresh join.
+    // Fresh join (or a reconnect whose participantId no longer exists). If the room was
+    // parked, the parked record is a ghost to THIS arriver — its owner didn't come back, a
+    // different person did. Evict it (and its vote) so it never serializes into the roster,
+    // and drop the dangling host pointer so the fresh joiner can be promoted below.
+    this.evictParkedGhost(room);
+
     if (room.participants.size >= LIMITS.maxParticipantsPerRoom) {
       return err("ROOM_FULL", "this room is full");
     }
     const participant: Participant = {
       id: randomUUID(),
       displayName,
-      isHost: false,
+      // First real member of an otherwise-empty room inherits the host role — covers a
+      // stranger arriving after the host abandoned a solo room within the grace window.
+      isHost: room.participants.size === 0,
       connectionId,
       hasVoted: false,
       joinedAt: now,
     };
     room.participants.set(participant.id, participant);
+    if (participant.isHost) room.hostParticipantId = participant.id;
     this.bySocket.set(connectionId, {
       roomCode: code,
       participantId: participant.id,
@@ -214,20 +275,28 @@ export class RoomRegistry {
     // Guard: only the participant's CURRENT socket may remove it.
     if (!participant || participant.connectionId !== connectionId) return null;
 
-    room.participants.delete(entry.participantId);
-    room.votes.delete(entry.participantId);
     const wasHost = room.hostParticipantId === entry.participantId;
 
-    if (room.participants.size === 0) {
-      this.rooms.delete(room.code);
+    // Last participant leaving: enter the grace window instead of tearing down. We KEEP the
+    // participant record (and their votes) so a refresh's reconnect rebinds the same identity
+    // — preserving host status, joinedAt, and any cast vote. Only `bySocket` was dropped above
+    // (the dead socket), so the participant is parked: present in the room, but unreachable
+    // until a new socket rebinds it. If no one rejoins, the grace timer deletes the whole room.
+    if (room.participants.size === 1) {
+      room.parkedParticipantId = entry.participantId;
+      this.scheduleGraceDeletion(room.code);
       return {
         roomCode: room.code,
         removedParticipantId: entry.participantId,
-        roomDeleted: true,
+        roomGone: true,
         hostChanged: false,
         hostParticipantId: null,
       };
     }
+
+    // Not the last one — remove the leaver outright; the room lives on with the survivors.
+    room.participants.delete(entry.participantId);
+    room.votes.delete(entry.participantId);
 
     let hostChanged = false;
     if (wasHost) {
@@ -243,7 +312,7 @@ export class RoomRegistry {
     return {
       roomCode: room.code,
       removedParticipantId: entry.participantId,
-      roomDeleted: false,
+      roomGone: false,
       hostChanged,
       hostParticipantId: room.hostParticipantId,
     };
@@ -357,11 +426,23 @@ export class RoomRegistry {
         (p) => p.connectionId,
       );
       if (connectionIds.some(isLive)) continue; // someone is still present — spare it.
+      this.cancelGraceDeletion(room.code); // never double-delete via timer + reaper.
       for (const cid of connectionIds) this.bySocket.delete(cid);
       this.rooms.delete(room.code);
       reaped.push({ roomCode: room.code, connectionIds });
     }
     return reaped;
+  }
+
+  /**
+   * Cancel every pending grace-deletion timer. Called on graceful shutdown so short-lived
+   * timers can't keep the process alive (the sockets are being closed anyway). Idempotent.
+   */
+  shutdown(): void {
+    for (const handle of this.pendingDeletes.values()) {
+      this.scheduler.clearTimeout(handle);
+    }
+    this.pendingDeletes.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -371,6 +452,53 @@ export class RoomRegistry {
   /** Stamp the room's last-activity time; bumped by every activity-bearing mutation. */
   private touch(room: Room, now: number): void {
     room.lastActivityAt = now;
+  }
+
+  /**
+   * Schedule deletion of a now-parked room `roomGraceMs` out, replacing any prior timer for
+   * the same code. The room still holds its sole (socket-less) participant during the window
+   * so a reconnect can rebind it. Any (re)join cancels this timer (see joinRoom/createRoom),
+   * so if it fires at all no one came back: tear the room down. The parked participant's
+   * connectionId is handed to `onRoomDeleted` so the transport can close that orphan socket
+   * (already closed in the refresh case — the close is an idempotent no-op).
+   */
+  private scheduleGraceDeletion(code: string): void {
+    this.cancelGraceDeletion(code);
+    const handle = this.scheduler.setTimeout(() => {
+      this.pendingDeletes.delete(code);
+      const room = this.rooms.get(code);
+      if (!room) return; // already gone (e.g. reaped) — nothing to do.
+      const connectionIds = [...room.participants.values()].map(
+        (p) => p.connectionId,
+      );
+      for (const cid of connectionIds) this.bySocket.delete(cid);
+      this.rooms.delete(code);
+      this.onRoomDeleted(code, connectionIds);
+    }, LIMITS.roomGraceMs);
+    this.pendingDeletes.set(code, handle);
+  }
+
+  /**
+   * Evict a room's parked (grace-window) participant if it has one: the parked owner did not
+   * return — a different person is joining — so the parked record is a ghost. Drop it and its
+   * vote, and clear `parkedParticipantId`. The dangling `hostParticipantId` is left for the
+   * caller to reassign (the fresh joiner becomes host of the now-empty room). No-op if the
+   * room isn't parked.
+   */
+  private evictParkedGhost(room: Room): void {
+    const ghostId = room.parkedParticipantId;
+    if (ghostId === null) return;
+    room.participants.delete(ghostId);
+    room.votes.delete(ghostId);
+    room.parkedParticipantId = null;
+  }
+
+  /** Cancel a pending grace-deletion for `code` (a rejoin rescued the room). */
+  private cancelGraceDeletion(code: string): void {
+    const handle = this.pendingDeletes.get(code);
+    if (handle === undefined) return;
+    this.scheduler.clearTimeout(handle);
+    this.pendingDeletes.delete(code);
   }
 
   /** Clear all votes + reveal state and reset every participant's hasVoted flag. */

@@ -36,6 +36,14 @@ export const LIMITS = {
    * effective maximum lifetime is `roomIdleTtlMs + SWEEP_INTERVAL_MS` (~31 min).
    */
   roomIdleTtlMs: 30 * 60_000,
+  /**
+   * Grace window before an emptied room is deleted (10 s). Bridges the gap between the
+   * last socket closing and a refresh's new socket rejoining: a solo host who refreshes
+   * drops to zero participants for a few hundred ms, so deleting on-empty would lose their
+   * room. Instead `leave()` schedules deletion this far out, and any (re)join inside the
+   * window cancels it — the room (and its host/votes) survives the round-trip.
+   */
+  roomGraceMs: 10_000,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@pp/shared";
-import { RoomRegistry } from "./rooms";
+import { RoomRegistry, type Scheduler } from "./rooms";
 
 /** Narrow a registry Result to its success variant, failing the test otherwise. */
 function assertOk<R extends { ok: boolean }>(
@@ -8,6 +8,39 @@ function assertOk<R extends { ok: boolean }>(
 ): asserts r is Extract<R, { ok: true }> {
   if (!r.ok) {
     throw new Error(`expected ok result, got error: ${JSON.stringify(r)}`);
+  }
+}
+
+/**
+ * Deterministic Scheduler stub: records callbacks instead of waiting real time, lets a test
+ * fire them on demand (`runAll`), and honours `clearTimeout` so cancelled timers never fire.
+ * Mirrors the domain's existing injection style (an explicit `now`) rather than vitest's
+ * global fake timers — the grace logic is pure given a scheduler, so this keeps it that way.
+ */
+class FakeScheduler implements Scheduler {
+  private readonly callbacks = new Map<number, () => void>();
+  private nextId = 1;
+
+  setTimeout(fn: () => void): unknown {
+    const id = this.nextId++;
+    this.callbacks.set(id, fn);
+    return id;
+  }
+
+  clearTimeout(handle: unknown): void {
+    this.callbacks.delete(handle as number);
+  }
+
+  /** Number of timers still pending (not yet fired or cleared). */
+  get pending(): number {
+    return this.callbacks.size;
+  }
+
+  /** Fire every pending timer once, in scheduling order, draining the queue. */
+  runAll(): void {
+    const due = [...this.callbacks.entries()].sort((a, b) => a[0] - b[0]);
+    this.callbacks.clear();
+    for (const [, fn] of due) fn();
   }
 }
 
@@ -177,7 +210,7 @@ describe("disconnect / host transfer (§3b)", () => {
     reg.joinRoom("s2", code, "Bob");
 
     const left = reg.leave("s2");
-    expect(left?.roomDeleted).toBe(false);
+    expect(left?.roomGone).toBe(false);
     expect(left?.hostChanged).toBe(false);
     expect(reg.getRoom(code)?.participants.size).toBe(1);
     expect(reg.getRoom(code)?.hostParticipantId).toBe(created.participant.id);
@@ -203,16 +236,153 @@ describe("disconnect / host transfer (§3b)", () => {
     ).toBe(true);
   });
 
-  it("deletes the room when the last participant leaves", () => {
-    const reg = new RoomRegistry();
+  it("schedules deletion (grace window) when the last participant leaves", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
     const created = reg.createRoom("s1", "Alice");
     assertOk(created);
     const code = created.room.code;
 
     const left = reg.leave("s1");
-    expect(left?.roomDeleted).toBe(true);
+    // Reported gone (no one to broadcast to) but kept alive for the grace window…
+    expect(left?.roomGone).toBe(true);
+    expect(reg.getRoom(code)).toBeDefined();
+    expect(reg.roomCount).toBe(1);
+
+    // …and only actually deleted once the grace timer fires.
+    sched.runAll();
     expect(reg.getRoom(code)).toBeUndefined();
     expect(reg.roomCount).toBe(0);
+  });
+});
+
+describe("empty-room grace period (refresh survival)", () => {
+  it("a solo host who rejoins inside the grace window keeps the room", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+    const pid = created.participant.id;
+
+    // Refresh: old socket closes (empties room), new socket rejoins with the same pid.
+    reg.leave("s1");
+    const rejoined = reg.joinRoom("s2", code, "Alice", pid);
+    assertOk(rejoined);
+    expect(rejoined.reconnected).toBe(true);
+    expect(rejoined.participant.isHost).toBe(true); // host status preserved
+
+    // The pending grace timer was cancelled — firing any remaining timers is a no-op.
+    sched.runAll();
+    expect(reg.getRoom(code)).toBeDefined();
+    expect(reg.getRoom(code)?.hostParticipantId).toBe(pid);
+  });
+
+  it("a DIFFERENT person joining a parked room evicts the ghost and becomes host", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+    const aliceId = created.participant.id;
+    // Alice casts a vote, then abandons the solo room (no refresh).
+    reg.castVote(code, aliceId, 5);
+    reg.leave("s1");
+
+    // Bob opens the share link within the grace window with NO stored session.
+    const bob = reg.joinRoom("s3", code, "Bob");
+    assertOk(bob);
+    expect(bob.reconnected).toBe(false);
+
+    const room = reg.getRoom(code)!;
+    // The parked ghost (Alice) must NOT linger in the roster…
+    const roster = reg.toPublic(room);
+    expect(roster.map((p) => p.displayName)).toEqual(["Bob"]);
+    // …Bob inherits the host role (no dangling pointer to the gone host)…
+    expect(bob.participant.isHost).toBe(true);
+    expect(room.hostParticipantId).toBe(bob.participant.id);
+    // …and Alice's stale vote is gone so it can't surface on reveal.
+    expect(room.votes.has(aliceId)).toBe(false);
+    expect(room.parkedParticipantId).toBeNull();
+
+    // The grace timer was cancelled by Bob's join — firing it leaves the room intact.
+    sched.runAll();
+    expect(reg.getRoom(code)).toBeDefined();
+  });
+
+  it("deletes the room if no one rejoins before the timer fires", () => {
+    const sched = new FakeScheduler();
+    const deleted: Array<{ code: string; cids: string[] }> = [];
+    const reg = new RoomRegistry(sched, (code, cids) =>
+      deleted.push({ code, cids }),
+    );
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+
+    reg.leave("s1");
+    sched.runAll();
+
+    expect(reg.getRoom(code)).toBeUndefined();
+    expect(reg.contextFor("s1")).toBeUndefined(); // bySocket purged
+    // The parked (socket-less) participant's dead connectionId is handed back so the
+    // transport can close it — an idempotent no-op since the refresh already closed it.
+    expect(deleted).toEqual([{ code, cids: ["s1"] }]);
+  });
+
+  it("re-emptying after a rejoin reschedules a fresh timer", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+    const pid = created.participant.id;
+
+    reg.leave("s1"); // timer #1 scheduled
+    reg.joinRoom("s2", code, "Alice", pid); // cancels #1
+    reg.leave("s2"); // timer #2 scheduled
+
+    sched.runAll(); // fires #2 only
+    expect(reg.getRoom(code)).toBeUndefined();
+  });
+
+  it("the reaper cancels a pending grace timer so a room is never double-deleted", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+    const code = created.room.code;
+
+    reg.leave("s1", 1000); // schedules grace deletion
+    // Reaper sweeps the now-idle, abandoned room before the grace timer fires.
+    const reaped = reg.reapExpired(
+      1000 + LIMITS.roomIdleTtlMs + 1,
+      () => false,
+    );
+    expect(reaped.map((r) => r.roomCode)).toEqual([code]);
+    expect(reg.getRoom(code)).toBeUndefined();
+
+    // The grace timer was cancelled — firing it must NOT throw or touch a deleted room.
+    expect(() => sched.runAll()).not.toThrow();
+  });
+
+  it("shutdown() clears all pending grace timers", () => {
+    const sched = new FakeScheduler();
+    const reg = new RoomRegistry(sched);
+    const a = reg.createRoom("s1", "A");
+    const b = reg.createRoom("s2", "B");
+    assertOk(a);
+    assertOk(b);
+
+    reg.leave("s1");
+    reg.leave("s2");
+    expect(sched.pending).toBe(2);
+
+    reg.shutdown();
+    expect(sched.pending).toBe(0);
+    // Rooms still exist (deletion never fired); they'd be cleared on process exit.
+    sched.runAll();
+    expect(reg.roomCount).toBe(2);
   });
 });
 

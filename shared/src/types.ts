@@ -57,6 +57,14 @@ export interface Room {
   createdAt: number;
   /** epoch ms of the last activity-bearing mutation; drives idle-room reaping. */
   lastActivityAt: number;
+  /**
+   * Set to the sole remaining participant's id while the room is in its post-empty grace
+   * window (see `LIMITS.roomGraceMs`). That participant is "parked": still in `participants`
+   * with a dead socket, kept only so the same person's refresh can rebind it. A reconnect
+   * onto this id un-parks (clears the field); any OTHER join evicts the parked ghost first.
+   * `null` whenever the room has a live membership.
+   */
+  parkedParticipantId: string | null;
 }
 
 // ---------------------------------------------------------------------------

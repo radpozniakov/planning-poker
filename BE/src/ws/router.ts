@@ -50,7 +50,7 @@ export function handleDisconnect(
   connections: ConnectionRegistry,
 ): void {
   const result = registry.leave(connectionId);
-  if (!result || result.roomDeleted) {
+  if (!result || result.roomGone) {
     connections.unregister(connectionId);
     return;
   }
