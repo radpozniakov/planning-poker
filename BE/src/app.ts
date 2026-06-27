@@ -4,6 +4,7 @@ import { RoomRegistry } from "./domain/rooms";
 import { registerHealthRoute } from "./http/health";
 import { ConnectionRegistry } from "./ws/connection-registry";
 import { createWsHandler } from "./ws/gateway";
+import { startIdleReaper } from "./ws/reaper";
 
 export interface AppDeps {
   registry: RoomRegistry;
@@ -15,6 +16,8 @@ export interface BuiltApp {
   injectWebSocket: ReturnType<typeof createNodeWebSocket>["injectWebSocket"];
   registry: RoomRegistry;
   connections: ConnectionRegistry;
+  /** Idle-room sweep handle; `server.ts` clears it on shutdown. Already `.unref()`'d. */
+  reaper: ReturnType<typeof setInterval>;
 }
 
 /**
@@ -31,5 +34,7 @@ export function createApp(deps: Partial<AppDeps> = {}): BuiltApp {
   registerHealthRoute(app, registry);
   app.get("/ws", upgradeWebSocket(createWsHandler(registry, connections)));
 
-  return { app, injectWebSocket, registry, connections };
+  const reaper = startIdleReaper(registry, connections);
+
+  return { app, injectWebSocket, registry, connections, reaper };
 }

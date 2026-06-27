@@ -136,6 +136,7 @@ export class RoomRegistry {
       participants: new Map([[participant.id, participant]]),
       votes: new Map(),
       createdAt: now,
+      lastActivityAt: now,
     };
     this.rooms.set(code, room);
     this.bySocket.set(connectionId, {
@@ -170,6 +171,7 @@ export class RoomRegistry {
         existing.connectionId = connectionId;
         existing.displayName = displayName;
         this.bySocket.set(connectionId, { roomCode: code, participantId });
+        this.touch(room, now);
         return ok({ room, participant: existing, reconnected: true });
       }
     }
@@ -191,6 +193,7 @@ export class RoomRegistry {
       roomCode: code,
       participantId: participant.id,
     });
+    this.touch(room, now);
     return ok({ room, participant, reconnected: false });
   }
 
@@ -199,7 +202,7 @@ export class RoomRegistry {
    * unknown (e.g. its participant was already rebound to a newer socket on reconnect —
    * the stale `disconnect` is then a safe no-op).
    */
-  leave(connectionId: string): LeaveResult | null {
+  leave(connectionId: string, now: number = Date.now()): LeaveResult | null {
     const entry = this.bySocket.get(connectionId);
     if (!entry) return null;
     this.bySocket.delete(connectionId);
@@ -234,6 +237,9 @@ export class RoomRegistry {
       hostChanged = true;
     }
 
+    // A departure is room activity: it keeps the surviving members' room from being
+    // treated as idle purely because nobody has voted since the last person left.
+    this.touch(room, now);
     return {
       roomCode: room.code,
       removedParticipantId: entry.participantId,
@@ -247,6 +253,7 @@ export class RoomRegistry {
     roomCode: string,
     participantId: string,
     description: string,
+    now: number = Date.now(),
   ): Result<{ room: Room }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
@@ -255,6 +262,7 @@ export class RoomRegistry {
     }
     room.currentTask = { description };
     this.clearRound(room);
+    this.touch(room, now);
     return ok({ room });
   }
 
@@ -262,6 +270,7 @@ export class RoomRegistry {
     roomCode: string,
     participantId: string,
     cardValue: CardValue,
+    now: number = Date.now(),
   ): Result<{ room: Room }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
@@ -277,12 +286,14 @@ export class RoomRegistry {
     const vote: Vote = { participantId, cardValue, hidden: true };
     room.votes.set(participantId, vote);
     participant.hasVoted = true;
+    this.touch(room, now);
     return ok({ room });
   }
 
   reveal(
     roomCode: string,
     participantId: string,
+    now: number = Date.now(),
   ): Result<{
     room: Room;
     votes: Vote[];
@@ -299,22 +310,68 @@ export class RoomRegistry {
       vote.hidden = false;
       votes.push(vote);
     }
+    this.touch(room, now);
     return ok({ room, votes, stats: computeVoteStats(votes) });
   }
 
-  reset(roomCode: string, participantId: string): Result<{ room: Room }> {
+  reset(
+    roomCode: string,
+    participantId: string,
+    now: number = Date.now(),
+  ): Result<{ room: Room }> {
     const room = this.rooms.get(normalizeCode(roomCode));
     if (!room) return err("ROOM_NOT_FOUND", "room not found");
     if (room.hostParticipantId !== participantId) {
       return err("NOT_HOST", "only the host can reset the round");
     }
     this.clearRound(room); // KEEPS currentTask (re-estimate the same task).
+    this.touch(room, now);
     return ok({ room });
+  }
+
+  // -------------------------------------------------------------------------
+  // Idle reaping (pure domain — socket-free, ADR-001)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Delete every room that is BOTH idle past `LIMITS.roomIdleTtlMs` AND has no live
+   * connection left, mirroring `leave()`'s cleanup discipline (drop from `rooms`, purge
+   * `bySocket`). Returns one entry per reaped room carrying its opaque connectionIds so the
+   * transport layer can close any orphaned sockets — the domain never touches a socket.
+   *
+   * `isLive` is an injected predicate over opaque connectionIds (default: nothing is live).
+   * It keeps the domain socket-free per ADR-001 — the domain asks "is this id still backed
+   * by a connection?" without ever seeing a socket. A room with even one live participant is
+   * spared: idleness means *no one is here*, not merely *no one pushed a button recently*.
+   * A still-present but silent room therefore survives; only genuinely abandoned rooms (all
+   * sockets gone) past the TTL are reaped.
+   */
+  reapExpired(
+    now: number = Date.now(),
+    isLive: (connectionId: string) => boolean = () => false,
+  ): Array<{ roomCode: string; connectionIds: string[] }> {
+    const reaped: Array<{ roomCode: string; connectionIds: string[] }> = [];
+    for (const room of this.rooms.values()) {
+      if (now - room.lastActivityAt <= LIMITS.roomIdleTtlMs) continue;
+      const connectionIds = [...room.participants.values()].map(
+        (p) => p.connectionId,
+      );
+      if (connectionIds.some(isLive)) continue; // someone is still present — spare it.
+      for (const cid of connectionIds) this.bySocket.delete(cid);
+      this.rooms.delete(room.code);
+      reaped.push({ roomCode: room.code, connectionIds });
+    }
+    return reaped;
   }
 
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  /** Stamp the room's last-activity time; bumped by every activity-bearing mutation. */
+  private touch(room: Room, now: number): void {
+    room.lastActivityAt = now;
+  }
 
   /** Clear all votes + reveal state and reset every participant's hasVoted flag. */
   private clearRound(room: Room): void {

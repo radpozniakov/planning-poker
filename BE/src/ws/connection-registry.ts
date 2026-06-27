@@ -52,6 +52,18 @@ export class ConnectionRegistry {
     return this.sockets.size;
   }
 
+  /**
+   * Is this connection still backed by an open socket? Used by the idle reaper to spare
+   * rooms whose participants are present-but-silent (connected, just not mutating state).
+   * Mirrors the OPEN check in `sendEnvelope`: a socket whose `readyState` reports anything
+   * other than OPEN (closing/closed) is not live. An unknown id is not live.
+   */
+  isLive(connectionId: string): boolean {
+    const ws = this.sockets.get(connectionId);
+    if (!ws) return false;
+    return ws.readyState === undefined || ws.readyState === OPEN;
+  }
+
   private sendEnvelope(connectionId: string, env: ServerEnvelope): void {
     const ws = this.sockets.get(connectionId);
     if (!ws) return;
@@ -87,9 +99,43 @@ export class ConnectionRegistry {
 
   /** Close every live socket (graceful shutdown). 1001 = "Going Away". */
   closeAll(code = 1001, reason = "server shutting down"): void {
-    for (const ws of this.sockets.values()) {
-      ws.close?.(code, reason);
+    this.closeAndDrop(this.sockets.keys(), code, reason);
+  }
+
+  /**
+   * Close + unregister the given orphaned connections (e.g. those of a reaped room, whose
+   * domain entry is already gone). The caller supplies the ids because the room no longer
+   * resolves via `connectionIdsIn`. 1001 = "Going Away".
+   *
+   * **Idempotency note:** calling `ws.close()` will trigger the gateway `onClose` callback,
+   * which calls `handleDisconnect` → `registry.leave()`. By that point `reapExpired` has
+   * already deleted the room and purged `bySocket`, so `leave()` finds no entry and returns
+   * null — its documented stale-socket no-op path. The subsequent `connections.unregister`
+   * inside `handleDisconnect` calls `sockets.delete` on an id we deleted just below, which
+   * is also a no-op. The double-cleanup is therefore intentionally idempotent and safe.
+   */
+  closeConnections(
+    connectionIds: Iterable<string>,
+    code = 1001,
+    reason = "room expired",
+  ): void {
+    this.closeAndDrop(connectionIds, code, reason);
+  }
+
+  /**
+   * The single socket-teardown path: close each socket (if it exposes `close`) and drop it
+   * from the map. `closeAll` feeds it every id (`this.sockets.keys()`); `closeConnections`
+   * feeds a subset. Deleting the just-visited key mid-iteration is safe for a Map iterator —
+   * it only ever drops the current key, never one not yet reached.
+   */
+  private closeAndDrop(
+    connectionIds: Iterable<string>,
+    code: number,
+    reason: string,
+  ): void {
+    for (const cid of connectionIds) {
+      this.sockets.get(cid)?.close?.(code, reason);
+      this.sockets.delete(cid);
     }
-    this.sockets.clear();
   }
 }

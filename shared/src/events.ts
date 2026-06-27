@@ -30,6 +30,12 @@ export const LIMITS = {
   roomCodeLength: 6,
   maxRooms: 50,
   maxParticipantsPerRoom: 30,
+  /**
+   * Idle TTL: a room with no activity for this long is reaped (30 min).
+   * Reaping is granular to the sweep interval (`SWEEP_INTERVAL_MS` = 60 s), so the
+   * effective maximum lifetime is `roomIdleTtlMs + SWEEP_INTERVAL_MS` (~31 min).
+   */
+  roomIdleTtlMs: 30 * 60_000,
 } as const;
 
 // ---------------------------------------------------------------------------

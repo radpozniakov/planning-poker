@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "@pp/shared";
 import { RoomRegistry } from "./rooms";
 
 /** Narrow a registry Result to its success variant, failing the test otherwise. */
@@ -212,6 +213,134 @@ describe("disconnect / host transfer (§3b)", () => {
     expect(left?.roomDeleted).toBe(true);
     expect(reg.getRoom(code)).toBeUndefined();
     expect(reg.roomCount).toBe(0);
+  });
+});
+
+describe("idle-room reaping", () => {
+  const TTL = LIMITS.roomIdleTtlMs;
+
+  it("reaps a room idle past the TTL but spares an active one", () => {
+    const reg = new RoomRegistry();
+    const idle = reg.createRoom("s-idle", "Idle", 1000);
+    assertOk(idle);
+    const active = reg.createRoom("s-active", "Active", 1000);
+    assertOk(active);
+
+    // `now` is just past the idle room's TTL; the active room is touched right before.
+    const now = 1000 + TTL + 1;
+    reg.castVote(active.room.code, active.participant.id, 5, now);
+
+    const reaped = reg.reapExpired(now);
+
+    expect(reaped.map((r) => r.roomCode)).toEqual([idle.room.code]);
+    expect(reg.getRoom(idle.room.code)).toBeUndefined();
+    expect(reg.getRoom(active.room.code)).toBeDefined();
+    expect(reg.roomCount).toBe(1);
+  });
+
+  it("does NOT reap exactly at the TTL boundary (strictly greater than)", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+
+    expect(reg.reapExpired(1000 + TTL)).toEqual([]);
+    expect(reg.roomCount).toBe(1);
+  });
+
+  it("returns each reaped room's code and its participants' connectionIds", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s-host", "Host", 1000);
+    assertOk(created);
+    reg.joinRoom("s-guest", created.room.code, "Guest", undefined, 1000);
+
+    const reaped = reg.reapExpired(1000 + TTL + 1);
+    expect(reaped).toHaveLength(1);
+    expect(reaped[0]!.roomCode).toBe(created.room.code);
+    expect(reaped[0]!.connectionIds.toSorted()).toEqual(["s-guest", "s-host"]);
+  });
+
+  it("purges the bySocket index so a reaped socket no longer resolves", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+
+    reg.reapExpired(1000 + TTL + 1);
+
+    expect(reg.contextFor("s1")).toBeUndefined();
+    expect(reg.leave("s1")).toBeNull();
+  });
+
+  it("bumps lastActivityAt on every activity-bearing mutation", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+    const code = created.room.code;
+    const id = created.participant.id;
+    const room = reg.getRoom(code)!;
+    expect(room.lastActivityAt).toBe(1000); // seeded to createdAt
+
+    reg.joinRoom("s2", code, "Bob", undefined, 2000);
+    expect(room.lastActivityAt).toBe(2000);
+
+    // Reconnect rebind counts as activity.
+    reg.joinRoom("s1-new", code, "Alice", id, 3000);
+    expect(room.lastActivityAt).toBe(3000);
+
+    reg.setTask(code, id, "task", 4000);
+    expect(room.lastActivityAt).toBe(4000);
+
+    reg.castVote(code, id, 5, 5000);
+    expect(room.lastActivityAt).toBe(5000);
+
+    reg.reveal(code, id, 6000);
+    expect(room.lastActivityAt).toBe(6000);
+
+    reg.reset(code, id, 7000);
+    expect(room.lastActivityAt).toBe(7000);
+  });
+
+  it("does NOT bump lastActivityAt on read-only calls", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+    const room = reg.getRoom(created.room.code)!;
+
+    reg.getRoom(created.room.code);
+    reg.contextFor("s1");
+    reg.connectionIdsIn(created.room.code);
+    reg.buildRoomState(room);
+
+    expect(room.lastActivityAt).toBe(1000);
+  });
+
+  it("spares an expired room when the liveness predicate reports a live connection", () => {
+    const reg = new RoomRegistry();
+    const present = reg.createRoom("s-present", "Present", 1000);
+    assertOk(present);
+    const abandoned = reg.createRoom("s-gone", "Gone", 1000);
+    assertOk(abandoned);
+
+    // Both rooms are equally idle and equally past the TTL; only presence differs.
+    const now = 1000 + TTL + 1;
+    const reaped = reg.reapExpired(now, (cid) => cid === "s-present");
+
+    // Only the abandoned room is reaped; presence beats idleness.
+    expect(reaped.map((r) => r.roomCode)).toEqual([abandoned.room.code]);
+    expect(reg.getRoom(present.room.code)).toBeDefined();
+    expect(reg.getRoom(abandoned.room.code)).toBeUndefined();
+  });
+
+  it("bumps lastActivityAt when a participant leaves a surviving room", () => {
+    const reg = new RoomRegistry();
+    const created = reg.createRoom("s1", "Alice", 1000);
+    assertOk(created);
+    reg.joinRoom("s2", created.room.code, "Bob", undefined, 1000);
+    const room = reg.getRoom(created.room.code)!;
+
+    // Bob disconnects much later; the room survives (Alice remains) and the departure
+    // counts as activity, so the room is not treated as idle since 1000.
+    reg.leave("s2", 9000);
+    expect(room.lastActivityAt).toBe(9000);
   });
 });
 

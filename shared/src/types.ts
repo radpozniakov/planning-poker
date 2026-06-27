@@ -55,6 +55,8 @@ export interface Room {
   participants: Map<string, Participant>;
   votes: Map<string, Vote>;
   createdAt: number;
+  /** epoch ms of the last activity-bearing mutation; drives idle-room reaping. */
+  lastActivityAt: number;
 }
 
 // ---------------------------------------------------------------------------
