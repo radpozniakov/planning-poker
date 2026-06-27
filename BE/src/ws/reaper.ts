@@ -1,3 +1,4 @@
+import { logger as rootLogger, type Logger } from "../lib/logger";
 import type { RoomRegistry } from "../domain/rooms";
 import type { ConnectionRegistry } from "./connection-registry";
 
@@ -16,11 +17,25 @@ export const SWEEP_INTERVAL_MS = 60_000;
 export function startIdleReaper(
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger = rootLogger,
 ): ReturnType<typeof setInterval> {
   const isLive = (cid: string) => connections.isLive(cid);
   const handle = setInterval(() => {
-    for (const { connectionIds } of registry.reapExpired(Date.now(), isLive)) {
-      connections.closeConnections(connectionIds);
+    try {
+      const reaped = registry.reapExpired(Date.now(), isLive);
+      const allConnectionIds: string[] = [];
+      for (const { connectionIds } of reaped) {
+        connections.closeConnections(connectionIds);
+        allConnectionIds.push(...connectionIds);
+      }
+      if (reaped.length > 0) {
+        log.info(
+          { roomsReaped: reaped.length, connectionIds: allConnectionIds },
+          "reaper sweep",
+        );
+      }
+    } catch (err) {
+      log.error({ err }, "reaper sweep failed");
     }
   }, SWEEP_INTERVAL_MS);
   handle.unref();

@@ -13,6 +13,7 @@ import {
   type ParsedClientEnvelope,
 } from "@pp/shared";
 import type { RoomRegistry } from "../domain/rooms";
+import { logger, type Logger } from "../lib/logger";
 import { validate } from "../lib/validation";
 import type { ConnectionRegistry } from "./connection-registry";
 
@@ -26,20 +27,32 @@ export function dispatch(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  rootLog: Logger = logger,
 ): void {
+  // Build a child logger enriched with connection + room/participant context where available.
+  const ctx = registry.contextFor(connectionId);
+  const log = rootLog.child({
+    connectionId,
+    ...(ctx
+      ? { roomCode: ctx.roomCode, participantId: ctx.participantId }
+      : {}),
+  });
+
   switch (env.event) {
     case C2S.createRoom:
-      return handleCreateRoom(connectionId, env, registry, connections);
+      return handleCreateRoom(connectionId, env, registry, connections, log);
     case C2S.joinRoom:
-      return handleJoinRoom(connectionId, env, registry, connections);
+      return handleJoinRoom(connectionId, env, registry, connections, log);
     case C2S.setTask:
-      return handleSetTask(connectionId, env, registry, connections);
+      return handleSetTask(connectionId, env, registry, connections, log);
     case C2S.castVote:
-      return handleCastVote(connectionId, env, registry, connections);
+      return handleCastVote(connectionId, env, registry, connections, log);
     case C2S.reveal:
-      return handleReveal(connectionId, env, registry, connections);
+      return handleReveal(connectionId, env, registry, connections, log);
     case C2S.reset:
-      return handleReset(connectionId, env, registry, connections);
+      return handleReset(connectionId, env, registry, connections, log);
+    default:
+      log.warn({ event: (env as { event: string }).event }, "unknown event");
   }
 }
 
@@ -48,12 +61,18 @@ export function handleDisconnect(
   connectionId: string,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  rootLog: Logger = logger,
 ): void {
   const result = registry.leave(connectionId);
   if (!result || result.roomGone) {
     connections.unregister(connectionId);
     return;
   }
+  const log = rootLog.child({ connectionId, roomCode: result.roomCode });
+  log.info(
+    { parked: result.roomGone, hostChanged: result.hostChanged },
+    "participant left",
+  );
   const room = registry.getRoom(result.roomCode);
   if (room) {
     if (result.hostChanged && result.hostParticipantId) {
@@ -77,6 +96,7 @@ function handleCreateRoom(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(createRoomSchema, env.payload);
   if (!parsed.ok)
@@ -86,6 +106,7 @@ function handleCreateRoom(
       env.id,
       "VALIDATION",
       parsed.message,
+      log,
     );
 
   const result = registry.createRoom(connectionId, parsed.data.displayName);
@@ -96,9 +117,14 @@ function handleCreateRoom(
       env.id,
       result.code,
       result.message,
+      log,
     );
 
   const { room, participant } = result;
+  log.info(
+    { roomCode: room.code, participantId: participant.id },
+    "room created",
+  );
   const ack: CreateRoomResult = {
     ok: true,
     roomCode: room.code,
@@ -117,6 +143,7 @@ function handleJoinRoom(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(joinRoomSchema, env.payload);
   if (!parsed.ok)
@@ -126,6 +153,7 @@ function handleJoinRoom(
       env.id,
       "VALIDATION",
       parsed.message,
+      log,
     );
 
   const { roomCode, displayName, participantId } = parsed.data;
@@ -142,9 +170,14 @@ function handleJoinRoom(
       env.id,
       result.code,
       result.message,
+      log,
     );
 
-  const { room, participant } = result;
+  const { room, participant, reconnected } = result;
+  log.info(
+    { roomCode: room.code, participantId: participant.id, reconnected },
+    "room joined",
+  );
   const ack: JoinRoomResult = {
     ok: true,
     participantId: participant.id,
@@ -162,10 +195,17 @@ function handleSetTask(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(setTaskSchema, env.payload);
   if (!parsed.ok)
-    return emitError(connections, connectionId, "VALIDATION", parsed.message);
+    return emitError(
+      connections,
+      connectionId,
+      "VALIDATION",
+      parsed.message,
+      log,
+    );
 
   const ctx = registry.contextFor(connectionId);
   if (!ctx)
@@ -174,6 +214,7 @@ function handleSetTask(
       connectionId,
       "NOT_IN_ROOM",
       "join a room first",
+      log,
     );
 
   const result = registry.setTask(
@@ -182,9 +223,16 @@ function handleSetTask(
     parsed.data.description,
   );
   if (!result.ok)
-    return emitError(connections, connectionId, result.code, result.message);
+    return emitError(
+      connections,
+      connectionId,
+      result.code,
+      result.message,
+      log,
+    );
 
   const { room } = result;
+  log.info({ roomCode: room.code }, "task set");
   connections.broadcastToRoom(room.code, S2C.taskUpdated, {
     task: room.currentTask,
   });
@@ -198,10 +246,17 @@ function handleCastVote(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(castVoteSchema, env.payload);
   if (!parsed.ok)
-    return emitError(connections, connectionId, "VALIDATION", parsed.message);
+    return emitError(
+      connections,
+      connectionId,
+      "VALIDATION",
+      parsed.message,
+      log,
+    );
 
   const ctx = registry.contextFor(connectionId);
   if (!ctx)
@@ -210,6 +265,7 @@ function handleCastVote(
       connectionId,
       "NOT_IN_ROOM",
       "join a room first",
+      log,
     );
 
   const result = registry.castVote(
@@ -218,8 +274,16 @@ function handleCastVote(
     parsed.data.cardValue,
   );
   if (!result.ok)
-    return emitError(connections, connectionId, result.code, result.message);
+    return emitError(
+      connections,
+      connectionId,
+      result.code,
+      result.message,
+      log,
+    );
 
+  // CRITICAL: log only participantId — never cardValue (vote privacy invariant, AC-6).
+  log.info({ participantId: ctx.participantId }, "vote recorded");
   // Broadcast presence only — the "voted" dot, never the value.
   connections.broadcastToRoom(result.room.code, S2C.presence, {
     participants: registry.toPublic(result.room),
@@ -231,10 +295,17 @@ function handleReveal(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(revealSchema, env.payload);
   if (!parsed.ok)
-    return emitError(connections, connectionId, "VALIDATION", parsed.message);
+    return emitError(
+      connections,
+      connectionId,
+      "VALIDATION",
+      parsed.message,
+      log,
+    );
 
   const ctx = registry.contextFor(connectionId);
   if (!ctx)
@@ -243,12 +314,23 @@ function handleReveal(
       connectionId,
       "NOT_IN_ROOM",
       "join a room first",
+      log,
     );
 
   const result = registry.reveal(ctx.roomCode, ctx.participantId);
   if (!result.ok)
-    return emitError(connections, connectionId, result.code, result.message);
+    return emitError(
+      connections,
+      connectionId,
+      result.code,
+      result.message,
+      log,
+    );
 
+  log.info(
+    { roomCode: result.room.code, stats: result.stats },
+    "votes revealed",
+  );
   connections.broadcastToRoom(result.room.code, S2C.revealed, {
     votes: result.votes,
     stats: result.stats,
@@ -260,10 +342,17 @@ function handleReset(
   env: ParsedClientEnvelope,
   registry: RoomRegistry,
   connections: ConnectionRegistry,
+  log: Logger,
 ): void {
   const parsed = validate(resetSchema, env.payload);
   if (!parsed.ok)
-    return emitError(connections, connectionId, "VALIDATION", parsed.message);
+    return emitError(
+      connections,
+      connectionId,
+      "VALIDATION",
+      parsed.message,
+      log,
+    );
 
   const ctx = registry.contextFor(connectionId);
   if (!ctx)
@@ -272,13 +361,21 @@ function handleReset(
       connectionId,
       "NOT_IN_ROOM",
       "join a room first",
+      log,
     );
 
   const result = registry.reset(ctx.roomCode, ctx.participantId);
   if (!result.ok)
-    return emitError(connections, connectionId, result.code, result.message);
+    return emitError(
+      connections,
+      connectionId,
+      result.code,
+      result.message,
+      log,
+    );
 
   const { room } = result;
+  log.info({ roomCode: room.code }, "round reset");
   connections.broadcastToRoom(room.code, S2C.roundReset, {});
   connections.broadcastToRoom(room.code, S2C.presence, {
     participants: registry.toPublic(room),
@@ -295,7 +392,9 @@ function emitError(
   connectionId: string,
   code: ErrorCode,
   message: string,
+  log: Logger,
 ): void {
+  log.warn({ code, message }, "emitError");
   connections.sendEvent(connectionId, S2C.errorEvent, { code, message });
 }
 
@@ -306,7 +405,9 @@ function replyError(
   id: string | undefined,
   code: ErrorCode,
   message: string,
+  log: Logger,
 ): void {
+  log.warn({ code, message }, "replyError");
   if (id) {
     connections.sendAck(connectionId, id, {
       ok: false,
@@ -314,5 +415,5 @@ function replyError(
     });
     return;
   }
-  emitError(connections, connectionId, code, message);
+  connections.sendEvent(connectionId, S2C.errorEvent, { code, message });
 }

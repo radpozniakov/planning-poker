@@ -1,7 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 import { ENVELOPE_KIND, S2C } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
+import type { Logger } from "../lib/logger";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
+
+// ---------------------------------------------------------------------------
+// Recording logger fake
+// ---------------------------------------------------------------------------
+
+interface LogCall {
+  level: "info" | "warn" | "error" | "fatal";
+  obj?: Record<string, unknown>;
+  msg: string;
+}
+
+function makeRecordingLogger(calls: LogCall[] = []): Logger {
+  const makeLevel =
+    (level: LogCall["level"]) =>
+    (objOrMsg: Record<string, unknown> | string, msg?: string) => {
+      if (typeof objOrMsg === "string") {
+        calls.push({ level, msg: objOrMsg });
+      } else {
+        calls.push({ level, obj: objOrMsg, msg: msg ?? "" });
+      }
+    };
+  return {
+    info: makeLevel("info") as Logger["info"],
+    warn: makeLevel("warn") as Logger["warn"],
+    error: makeLevel("error") as Logger["error"],
+    fatal: makeLevel("fatal") as Logger["fatal"],
+    child(): Logger {
+      return makeRecordingLogger(calls);
+    },
+  };
+}
 
 /** A fake socket capturing everything sent to it. readyState defaults to OPEN. */
 function fakeSocket(readyState = 1): Sendable & { sent: string[] } {
@@ -107,5 +139,21 @@ describe("ConnectionRegistry", () => {
     expect(a.close).toHaveBeenCalledWith(1001, "server shutting down");
     expect(b.close).toHaveBeenCalled();
     expect(conns.size).toBe(0);
+  });
+
+  it("AC-10: sendEvent to a CLOSED (readyState=3) socket logs warn 'send dropped' with connectionId + readyState", () => {
+    const calls: LogCall[] = [];
+    const log = makeRecordingLogger(calls);
+    const conns = new ConnectionRegistry(new RoomRegistry(), log);
+    const closed = fakeSocket(3); // CLOSED readyState
+    const id = conns.register(closed);
+    conns.sendEvent(id, S2C.roundReset, {});
+    // Nothing sent
+    expect(closed.sent.length).toBe(0);
+    // Warn logged
+    const warn = calls.find((c) => c.msg === "send dropped");
+    expect(warn).toBeDefined();
+    expect(warn?.level).toBe("warn");
+    expect(warn?.obj).toMatchObject({ connectionId: id, readyState: 3 });
   });
 });
