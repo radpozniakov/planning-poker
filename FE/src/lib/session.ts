@@ -1,5 +1,3 @@
-import { browser } from "$app/environment";
-
 /** Reconnection triple persisted to localStorage so a refresh rejoins silently. */
 export interface StoredSession {
   participantId: string;
@@ -10,7 +8,7 @@ export interface StoredSession {
 const STORAGE_KEY = "pp.session";
 
 function canUseStorage(): boolean {
-  return browser && typeof localStorage !== "undefined";
+  return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
 /** Persist the reconnection triple. */
