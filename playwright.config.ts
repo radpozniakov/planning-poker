@@ -35,7 +35,11 @@ export default defineConfig({
     {
       command: "npm run dev:be",
       url: `http://localhost:${BE_PORT}/health`,
-      reuseExistingServer: !process.env.CI,
+      // Never reuse the BE. /health only returns a 200 (no app/version identity), so a
+      // stale BE left on :3000 would be silently adopted and the suite would run against
+      // code that doesn't match the working tree — a meaningless pass/fail. Always boot a
+      // BE from this tree; a port clash then fails loudly instead of running stale code.
+      reuseExistingServer: false,
       timeout: 60_000,
       stdout: "pipe",
       stderr: "pipe",
