@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@pp/shared";
 import { RoomRegistry, type Scheduler } from "./rooms";
+import {
+  makeRecordingLogger,
+  byLevel,
+} from "../lib/__fixtures__/recording-logger";
 
 /** Narrow a registry Result to its success variant, failing the test otherwise. */
 function assertOk<R extends { ok: boolean }>(
@@ -38,7 +42,7 @@ class FakeScheduler implements Scheduler {
 
   /** Fire every pending timer once, in scheduling order, draining the queue. */
   runAll(): void {
-    const due = [...this.callbacks.entries()].sort((a, b) => a[0] - b[0]);
+    const due = [...this.callbacks.entries()].toSorted((a, b) => a[0] - b[0]);
     this.callbacks.clear();
     for (const [, fn] of due) fn();
   }
@@ -532,5 +536,83 @@ describe("reconnection rebind", () => {
     // The old socket's late disconnect must NOT remove the reconnected participant.
     expect(reg.leave("s1")).toBeNull();
     expect(reg.getRoom(code)?.participants.size).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-7: grace lifecycle logging (injected fake logger)
+// ---------------------------------------------------------------------------
+describe("grace-lifecycle logging (AC-7)", () => {
+  it("logs grace.scheduled when the last participant leaves", () => {
+    const sched = new FakeScheduler();
+    const fakeLog = makeRecordingLogger();
+    const reg = new RoomRegistry(sched, () => {}, fakeLog);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+
+    reg.leave("s1");
+
+    const scheduled = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "grace.scheduled",
+    );
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]!.obj).toMatchObject({ roomCode: code });
+  });
+
+  it("logs grace.cancelled when a participant rejoins within the grace window", () => {
+    const sched = new FakeScheduler();
+    const fakeLog = makeRecordingLogger();
+    const reg = new RoomRegistry(sched, () => {}, fakeLog);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+    const pid = created.participant.id;
+
+    reg.leave("s1");
+    reg.joinRoom("s2", code, "Alice", pid);
+
+    const cancelled = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "grace.cancelled",
+    );
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]!.obj).toMatchObject({ roomCode: code });
+  });
+
+  it("logs grace.fired when the grace timer fires and no one rejoined", () => {
+    const sched = new FakeScheduler();
+    const fakeLog = makeRecordingLogger();
+    const reg = new RoomRegistry(sched, () => {}, fakeLog);
+    const created = reg.createRoom("s1", "Alice");
+    assertOk(created);
+    const code = created.room.code;
+
+    reg.leave("s1");
+    sched.runAll(); // fire the grace timer
+
+    const fired = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "grace.fired",
+    );
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.obj).toMatchObject({ roomCode: code });
+  });
+
+  it("logs room.reaped with roomCode and connectionIds when reapExpired removes a room", () => {
+    const fakeLog = makeRecordingLogger();
+    const reg = new RoomRegistry(undefined, () => {}, fakeLog);
+    const created = reg.createRoom("s-host", "Host", 1000);
+    assertOk(created);
+    reg.joinRoom("s-guest", created.room.code, "Guest", undefined, 1000);
+    const code = created.room.code;
+
+    reg.reapExpired(1000 + LIMITS.roomIdleTtlMs + 1, () => false);
+
+    const reaped = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "room.reaped",
+    );
+    expect(reaped).toHaveLength(1);
+    expect(reaped[0]!.obj).toMatchObject({ roomCode: code });
+    const loggedIds = (reaped[0]!.obj!.connectionIds as string[]).toSorted();
+    expect(loggedIds).toEqual(["s-guest", "s-host"]);
   });
 });

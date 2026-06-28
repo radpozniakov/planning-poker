@@ -1,19 +1,20 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app";
+import { logger } from "./lib/logger";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
 const { app, injectWebSocket, registry, connections, reaper } = createApp();
 
 const server = serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`[planning-picker] listening on :${PORT}`);
+  logger.info({ port: PORT }, "server listening");
 });
 
 // Attach the WS upgrade handler to the node server created by @hono/node-server.
 injectWebSocket(server);
 
 function shutdown(signal: string): void {
-  console.log(`[planning-picker] ${signal} received — shutting down`);
+  logger.info({ signal }, "shutdown initiated");
   // Stop the idle sweep first so it can't fire mid-shutdown.
   clearInterval(reaper);
   // Cancel any pending grace-deletion timers (the sockets are about to close anyway).
@@ -28,3 +29,13 @@ function shutdown(signal: string): void {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaughtException");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (err) => {
+  logger.fatal({ err }, "unhandledRejection");
+  process.exit(1);
+});

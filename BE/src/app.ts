@@ -1,5 +1,6 @@
 import { createNodeWebSocket } from "@hono/node-ws";
 import { Hono } from "hono";
+import { logger } from "./lib/logger";
 import { RoomRegistry } from "./domain/rooms";
 import { registerHealthRoute } from "./http/health";
 import { ConnectionRegistry } from "./ws/connection-registry";
@@ -32,9 +33,13 @@ export function createApp(deps: Partial<AppDeps> = {}): BuiltApp {
   let connectionsRef: ConnectionRegistry | undefined;
   const registry =
     deps.registry ??
-    new RoomRegistry(undefined, (_roomCode, connectionIds) => {
-      connectionsRef?.closeConnections(connectionIds);
-    });
+    new RoomRegistry(
+      undefined,
+      (_roomCode, connectionIds) => {
+        connectionsRef?.closeConnections(connectionIds);
+      },
+      logger,
+    );
   const connections = deps.connections ?? new ConnectionRegistry(registry);
   connectionsRef = connections;
 
@@ -42,9 +47,14 @@ export function createApp(deps: Partial<AppDeps> = {}): BuiltApp {
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
   registerHealthRoute(app, registry);
-  app.get("/ws", upgradeWebSocket(createWsHandler(registry, connections)));
+  app.get(
+    "/ws",
+    upgradeWebSocket(createWsHandler(registry, connections, logger), {
+      onError: (e) => logger.error({ err: e }, "ws adapter error"),
+    }),
+  );
 
-  const reaper = startIdleReaper(registry, connections);
+  const reaper = startIdleReaper(registry, connections, logger);
 
   return { app, injectWebSocket, registry, connections, reaper };
 }

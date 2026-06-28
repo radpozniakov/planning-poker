@@ -3,6 +3,10 @@ import { LIMITS } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
 import { startIdleReaper, SWEEP_INTERVAL_MS } from "./reaper";
+import {
+  makeRecordingLogger,
+  byLevel,
+} from "../lib/__fixtures__/recording-logger";
 
 /** A fake socket capturing close calls. readyState defaults to OPEN. */
 function fakeSocket(readyState = 1): Sendable & { sent: string[] } {
@@ -154,5 +158,111 @@ describe("startIdleReaper — setInterval lifecycle", () => {
     // Sweep was cancelled — socket must be untouched.
     expect(sock.close).not.toHaveBeenCalled();
     expect(conns.size).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-8: reaper sweep logging (injected fake logger)
+// ---------------------------------------------------------------------------
+describe("startIdleReaper — sweep logging (AC-8)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs sweep result at info with roomsReaped count AND connectionIds when rooms are reaped", () => {
+    vi.useFakeTimers();
+    const BASE = 1000;
+    vi.setSystemTime(BASE);
+
+    const rooms = new RoomRegistry();
+    const conns = new ConnectionRegistry(rooms);
+    const sockA = fakeSocket(3); // CLOSED — abandoned
+    const sockB = fakeSocket(3); // CLOSED — abandoned
+    const idA = conns.register(sockA);
+    const idB = conns.register(sockB);
+
+    rooms.createRoom(idA, "Alice", BASE);
+    rooms.createRoom(idB, "Bob", BASE);
+
+    // Advance past the idle TTL.
+    vi.setSystemTime(BASE + LIMITS.roomIdleTtlMs + 1);
+
+    const fakeLog = makeRecordingLogger();
+    const handle = startIdleReaper(rooms, conns, fakeLog);
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+
+    const sweepLogs = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "reaper sweep",
+    );
+    expect(sweepLogs).toHaveLength(1);
+    expect(sweepLogs[0]!.obj).toMatchObject({ roomsReaped: 2 });
+    const loggedIds = (sweepLogs[0]!.obj!.connectionIds as string[]).toSorted();
+    expect(loggedIds).toEqual([idA, idB].toSorted());
+
+    clearInterval(handle);
+  });
+
+  it("does NOT log sweep info when no rooms are reaped", () => {
+    vi.useFakeTimers();
+    const BASE = 1000;
+    vi.setSystemTime(BASE);
+
+    const rooms = new RoomRegistry();
+    const conns = new ConnectionRegistry(rooms);
+    const sock = fakeSocket(1); // OPEN — still live
+    const connId = conns.register(sock);
+    rooms.createRoom(connId, "Alice", BASE);
+
+    // Even past TTL, the socket is open so the room is spared.
+    vi.setSystemTime(BASE + LIMITS.roomIdleTtlMs * 2);
+
+    const fakeLog = makeRecordingLogger();
+    const handle = startIdleReaper(rooms, conns, fakeLog);
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+
+    const sweepLogs = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "reaper sweep",
+    );
+    expect(sweepLogs).toHaveLength(0);
+
+    clearInterval(handle);
+  });
+
+  it("logs error 'reaper sweep failed' and the interval survives a thrown callback", () => {
+    vi.useFakeTimers();
+    const BASE = 1000;
+    vi.setSystemTime(BASE);
+
+    // Make reapExpired throw on the first call only.
+    const rooms = new RoomRegistry();
+    let callCount = 0;
+    const originalReap = rooms.reapExpired.bind(rooms);
+    rooms.reapExpired = (...args) => {
+      callCount++;
+      if (callCount === 1) throw new Error("boom");
+      return originalReap(...args);
+    };
+
+    const conns = new ConnectionRegistry(rooms);
+    const fakeLog = makeRecordingLogger();
+    const handle = startIdleReaper(rooms, conns, fakeLog);
+
+    // First tick — throws, should be caught and logged.
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+    const errors = byLevel(fakeLog.calls).error.filter(
+      (c) => c.msg === "reaper sweep failed",
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.obj).toHaveProperty("err");
+
+    // Second tick — interval survived; no additional error.
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+    expect(
+      byLevel(fakeLog.calls).error.filter(
+        (c) => c.msg === "reaper sweep failed",
+      ),
+    ).toHaveLength(1);
+
+    clearInterval(handle);
   });
 });

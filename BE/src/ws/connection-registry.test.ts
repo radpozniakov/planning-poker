@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { ENVELOPE_KIND, S2C } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
+import {
+  makeRecordingLogger,
+  type LogCall,
+} from "../lib/__fixtures__/recording-logger";
 
 /** A fake socket capturing everything sent to it. readyState defaults to OPEN. */
 function fakeSocket(readyState = 1): Sendable & { sent: string[] } {
@@ -107,5 +111,21 @@ describe("ConnectionRegistry", () => {
     expect(a.close).toHaveBeenCalledWith(1001, "server shutting down");
     expect(b.close).toHaveBeenCalled();
     expect(conns.size).toBe(0);
+  });
+
+  it("AC-10: sendEvent to a CLOSED (readyState=3) socket logs warn 'send dropped' with connectionId + readyState", () => {
+    const calls: LogCall[] = [];
+    const log = makeRecordingLogger(calls);
+    const conns = new ConnectionRegistry(new RoomRegistry(), log);
+    const closed = fakeSocket(3); // CLOSED readyState
+    const id = conns.register(closed);
+    conns.sendEvent(id, S2C.roundReset, {});
+    // Nothing sent
+    expect(closed.sent.length).toBe(0);
+    // Warn logged
+    const warn = calls.find((c) => c.msg === "send dropped");
+    expect(warn).toBeDefined();
+    expect(warn?.level).toBe("warn");
+    expect(warn?.obj).toMatchObject({ connectionId: id, readyState: 3 });
   });
 });

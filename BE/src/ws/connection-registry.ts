@@ -6,6 +6,7 @@ import {
   type ServerEnvelope,
 } from "@pp/shared";
 import type { RoomRegistry } from "../domain/rooms";
+import { logger, type Logger } from "../lib/logger";
 
 type S2CEvent = (typeof S2C)[keyof typeof S2C];
 
@@ -34,8 +35,14 @@ export type AckResult =
  */
 export class ConnectionRegistry {
   private readonly sockets = new Map<string, Sendable>();
+  private readonly log: Logger;
 
-  constructor(private readonly rooms: RoomRegistry) {}
+  constructor(
+    private readonly rooms: RoomRegistry,
+    log: Logger = logger,
+  ) {
+    this.log = log;
+  }
 
   /** On WS open: mint the opaque connectionId handed to `RoomRegistry`. */
   register(ws: Sendable): string {
@@ -66,8 +73,17 @@ export class ConnectionRegistry {
 
   private sendEnvelope(connectionId: string, env: ServerEnvelope): void {
     const ws = this.sockets.get(connectionId);
-    if (!ws) return;
-    if (ws.readyState !== undefined && ws.readyState !== OPEN) return;
+    if (!ws) {
+      this.log.warn({ connectionId, readyState: undefined }, "send dropped");
+      return;
+    }
+    if (ws.readyState !== undefined && ws.readyState !== OPEN) {
+      this.log.warn(
+        { connectionId, readyState: ws.readyState },
+        "send dropped",
+      );
+      return;
+    }
     ws.send(JSON.stringify(env));
   }
 

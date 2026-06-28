@@ -9,6 +9,7 @@ import {
   type RoomStatePayload,
   type Vote,
 } from "@pp/shared";
+import { logger as rootLogger, type Logger } from "../lib/logger";
 import { computeVoteStats } from "./stats";
 
 /** Ambiguous-looking characters (0/O, 1/I) are excluded so codes are easy to read aloud. */
@@ -86,10 +87,13 @@ export class RoomRegistry {
    * @param scheduler   Timer surface for deferred empty-room deletion (default: node timers).
    * @param onRoomDeleted Notified when a grace timer fires and deletes an abandoned room, so
    *                      the transport can close its orphaned sockets. No-op by default.
+   * @param log         Injected logger (default: root logger). Accepts a recording fake in
+   *                    tests — mirrors the Scheduler/onRoomDeleted injection style.
    */
   constructor(
     private readonly scheduler: Scheduler = defaultScheduler,
     private readonly onRoomDeleted: OnRoomDeleted = () => {},
+    private readonly log: Logger = rootLogger,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -430,6 +434,7 @@ export class RoomRegistry {
       for (const cid of connectionIds) this.bySocket.delete(cid);
       this.rooms.delete(room.code);
       reaped.push({ roomCode: room.code, connectionIds });
+      this.log.info({ roomCode: room.code, connectionIds }, "room.reaped");
     }
     return reaped;
   }
@@ -464,7 +469,9 @@ export class RoomRegistry {
    */
   private scheduleGraceDeletion(code: string): void {
     this.cancelGraceDeletion(code);
+    this.log.info({ roomCode: code }, "grace.scheduled");
     const handle = this.scheduler.setTimeout(() => {
+      this.log.info({ roomCode: code }, "grace.fired");
       this.pendingDeletes.delete(code);
       const room = this.rooms.get(code);
       if (!room) return; // already gone (e.g. reaped) — nothing to do.
@@ -499,6 +506,7 @@ export class RoomRegistry {
     if (handle === undefined) return;
     this.scheduler.clearTimeout(handle);
     this.pendingDeletes.delete(code);
+    this.log.info({ roomCode: code }, "grace.cancelled");
   }
 
   /** Clear all votes + reveal state and reset every participant's hasVoted flag. */
