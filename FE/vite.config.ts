@@ -14,6 +14,11 @@ export default defineConfig({
     },
   },
   server: {
+    // Pin the dev port. Without strictPort, Vite auto-increments on conflict (5173 -> 5174),
+    // which would silently drift away from the Playwright readiness URL / baseURL and hang the
+    // e2e run until timeout. strictPort makes a port clash fail loudly instead.
+    port: 5173,
+    strictPort: true,
     // Allow importing the @pp/shared workspace package (TS source) from outside FE/.
     fs: { allow: [".."] },
     // Same-origin dev: the client always opens a RELATIVE /ws (no hardcoded host), and Vite
