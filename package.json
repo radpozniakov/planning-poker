@@ -27,7 +27,6 @@
     "husky": "9.1.7",
     "oxlint": "^1.70.0",
     "prettier": "3.8.5",
-    "typescript": "^6.0.3",
-    "typescript-7": "npm:typescript@rc"
+    "typescript": "^7.0.1-rc"
   }
 }
