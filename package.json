@@ -21,9 +21,13 @@
     "build": "npm run build --workspace @pp/be && npm run build --workspace @pp/fe",
     "dev:be": "npm run dev --workspace @pp/be",
     "dev:fe": "npm run dev --workspace @pp/fe",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "husky": "9.1.7",
     "oxlint": "^1.70.0",
     "prettier": "3.8.5",

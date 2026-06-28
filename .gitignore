@@ -9,3 +9,9 @@ build/
 !.env.example
 
 .omc
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
