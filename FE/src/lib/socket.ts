@@ -1,4 +1,3 @@
-import { browser } from "$app/environment";
 import {
   C2S,
   ENVELOPE_KIND,
@@ -18,9 +17,8 @@ import {
  * `@pp/shared` event contract via the unchanged exports below.
  */
 
-/** In dev the BE runs on :3000; in prod we are same-origin. Computed lazily (browser-only). */
+/** WebSocket URL, always relative to the current origin. Computed lazily (browser-only). */
 function wsUrl(): string {
-  if (import.meta.env.DEV) return "ws://localhost:3000/ws";
   const proto = location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${location.host}/ws`;
 }
@@ -57,6 +55,23 @@ const handle = {
   },
 };
 export type SocketHandle = typeof handle;
+
+/** Alias for the connection handle, consumed by React's `useConnected` hook. */
+export const connectionHandle = handle;
+
+/**
+ * Subscribe to connection transitions (real socket open/close only). Adds `cb` to BOTH
+ * the connect and disconnect hook sets and returns an unsubscribe that removes it from
+ * both — lets React's `useSyncExternalStore` observe connected/disconnected changes.
+ */
+export function subscribeConnection(cb: () => void): () => void {
+  connectHooks.add(cb);
+  disconnectHooks.add(cb);
+  return () => {
+    connectHooks.delete(cb);
+    disconnectHooks.delete(cb);
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Connection lifecycle
@@ -107,7 +122,7 @@ function scheduleReconnect(): void {
 
 /** Lazily create + start connecting the singleton socket. Returns a handle, or null on SSR. */
 export function connectSocket(): SocketHandle | null {
-  if (!browser) return null;
+  if (typeof window === "undefined") return null;
   if (!ws || ws.readyState === WebSocket.CLOSED) open();
   return handle;
 }
@@ -319,7 +334,7 @@ export function registerServerHandlers(
   handlers: ServerHandlers,
   lifecycle?: { onConnect?: () => void; onDisconnect?: () => void },
 ): () => void {
-  if (!browser) return () => {};
+  if (typeof window === "undefined") return () => {};
 
   const offs: Array<() => void> = [];
 
