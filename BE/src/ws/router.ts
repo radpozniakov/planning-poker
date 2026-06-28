@@ -64,15 +64,22 @@ export function handleDisconnect(
   rootLog: Logger = logger,
 ): void {
   const result = registry.leave(connectionId);
-  if (!result || result.roomGone) {
+  if (!result) {
     connections.unregister(connectionId);
     return;
   }
+  // Log the leave BEFORE the parked early-return so the solo-host disconnect
+  // (last participant → room enters the grace/park window) still appears in the
+  // room's timeline. `parked` tracks exactly that grace case (roomGone === true).
   const log = rootLog.child({ connectionId, roomCode: result.roomCode });
   log.info(
     { parked: result.roomGone, hostChanged: result.hostChanged },
     "participant left",
   );
+  if (result.roomGone) {
+    connections.unregister(connectionId);
+    return;
+  }
   const room = registry.getRoom(result.roomCode);
   if (room) {
     if (result.hostChanged && result.hostParticipantId) {

@@ -38,11 +38,3 @@ export const logger: Logger =
   process.env.NODE_ENV === "development"
     ? pino({ level, transport: { target: "pino-pretty" } })
     : pino({ level }, pino.destination({ dest: 1, sync: true }));
-
-/**
- * Create a child logger with bound correlation fields.
- * Usage: childLogger({ connectionId, roomCode, participantId })
- */
-export function childLogger(fields: Record<string, unknown>): Logger {
-  return logger.child(fields);
-}

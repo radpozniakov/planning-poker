@@ -1,95 +1,12 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { RoomRegistry } from "../domain/rooms";
-import type { Logger } from "../lib/logger";
 import { ConnectionRegistry } from "./connection-registry";
 import { createWsHandler } from "./gateway";
-
-// ---------------------------------------------------------------------------
-// Recording logger fake
-// ---------------------------------------------------------------------------
-
-interface LogCall {
-  level: "info" | "warn" | "error" | "fatal";
-  obj?: Record<string, unknown>;
-  msg: string;
-}
-
-function makeRecordingLogger(calls: LogCall[] = []): Logger {
-  const makeLevel =
-    (level: LogCall["level"]) =>
-    (objOrMsg: Record<string, unknown> | string, msg?: string) => {
-      if (typeof objOrMsg === "string") {
-        calls.push({ level, msg: objOrMsg });
-      } else {
-        calls.push({ level, obj: objOrMsg, msg: msg ?? "" });
-      }
-    };
-  const log: Logger = {
-    info: makeLevel("info") as Logger["info"],
-    warn: makeLevel("warn") as Logger["warn"],
-    error: makeLevel("error") as Logger["error"],
-    fatal: makeLevel("fatal") as Logger["fatal"],
-    child(bindings: Record<string, unknown>): Logger {
-      // Child captures parent calls array, merges bindings into each obj
-      const childCalls = calls;
-      const childLog: Logger = {
-        info: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "info", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "info",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["info"],
-        warn: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "warn", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "warn",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["warn"],
-        error: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "error", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "error",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["error"],
-        fatal: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "fatal", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "fatal",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["fatal"],
-        child(more: Record<string, unknown>): Logger {
-          return makeRecordingLogger(childCalls).child({
-            ...bindings,
-            ...more,
-          });
-        },
-      };
-      return childLog;
-    },
-  };
-  return log;
-}
+import {
+  makeRecordingLogger,
+  type LogCall,
+} from "../lib/__fixtures__/recording-logger";
 
 // ---------------------------------------------------------------------------
 // Minimal WSContext fake

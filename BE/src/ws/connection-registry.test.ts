@@ -1,39 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { ENVELOPE_KIND, S2C } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
-import type { Logger } from "../lib/logger";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
-
-// ---------------------------------------------------------------------------
-// Recording logger fake
-// ---------------------------------------------------------------------------
-
-interface LogCall {
-  level: "info" | "warn" | "error" | "fatal";
-  obj?: Record<string, unknown>;
-  msg: string;
-}
-
-function makeRecordingLogger(calls: LogCall[] = []): Logger {
-  const makeLevel =
-    (level: LogCall["level"]) =>
-    (objOrMsg: Record<string, unknown> | string, msg?: string) => {
-      if (typeof objOrMsg === "string") {
-        calls.push({ level, msg: objOrMsg });
-      } else {
-        calls.push({ level, obj: objOrMsg, msg: msg ?? "" });
-      }
-    };
-  return {
-    info: makeLevel("info") as Logger["info"],
-    warn: makeLevel("warn") as Logger["warn"],
-    error: makeLevel("error") as Logger["error"],
-    fatal: makeLevel("fatal") as Logger["fatal"],
-    child(): Logger {
-      return makeRecordingLogger(calls);
-    },
-  };
-}
+import {
+  makeRecordingLogger,
+  type LogCall,
+} from "../lib/__fixtures__/recording-logger";
 
 /** A fake socket capturing everything sent to it. readyState defaults to OPEN. */
 function fakeSocket(readyState = 1): Sendable & { sent: string[] } {

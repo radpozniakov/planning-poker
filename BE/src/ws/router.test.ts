@@ -1,94 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { C2S, ENVELOPE_KIND, S2C, type ParsedClientEnvelope } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
-import type { Logger } from "../lib/logger";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
 import { dispatch, handleDisconnect } from "./router";
-
-// ---------------------------------------------------------------------------
-// Recording logger fake (shared by logging-specific test blocks)
-// ---------------------------------------------------------------------------
-
-interface LogCall {
-  level: "info" | "warn" | "error" | "fatal";
-  obj?: Record<string, unknown>;
-  msg: string;
-}
-
-function makeRecordingLogger(calls: LogCall[] = []): Logger {
-  const makeLevel =
-    (level: LogCall["level"]) =>
-    (objOrMsg: Record<string, unknown> | string, msg?: string) => {
-      if (typeof objOrMsg === "string") {
-        calls.push({ level, msg: objOrMsg });
-      } else {
-        calls.push({ level, obj: objOrMsg, msg: msg ?? "" });
-      }
-    };
-  const log: Logger = {
-    info: makeLevel("info") as Logger["info"],
-    warn: makeLevel("warn") as Logger["warn"],
-    error: makeLevel("error") as Logger["error"],
-    fatal: makeLevel("fatal") as Logger["fatal"],
-    child(bindings: Record<string, unknown>): Logger {
-      const childCalls = calls;
-      const childLog: Logger = {
-        info: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "info", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "info",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["info"],
-        warn: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "warn", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "warn",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["warn"],
-        error: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "error", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "error",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["error"],
-        fatal: ((objOrMsg: Record<string, unknown> | string, msg?: string) => {
-          if (typeof objOrMsg === "string") {
-            childCalls.push({ level: "fatal", obj: bindings, msg: objOrMsg });
-          } else {
-            childCalls.push({
-              level: "fatal",
-              obj: { ...bindings, ...objOrMsg },
-              msg: msg ?? "",
-            });
-          }
-        }) as Logger["fatal"],
-        child(more: Record<string, unknown>): Logger {
-          return makeRecordingLogger(childCalls).child({
-            ...bindings,
-            ...more,
-          });
-        },
-      };
-      return childLog;
-    },
-  };
-  return log;
-}
+import {
+  makeRecordingLogger,
+  type LogCall,
+} from "../lib/__fixtures__/recording-logger";
 
 /** Fake socket that records the parsed envelopes sent to it. */
 function fakeSocket(): Sendable & { sent: any[] } {

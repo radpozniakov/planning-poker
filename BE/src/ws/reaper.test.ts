@@ -3,40 +3,10 @@ import { LIMITS } from "@pp/shared";
 import { RoomRegistry } from "../domain/rooms";
 import { ConnectionRegistry, type Sendable } from "./connection-registry";
 import { startIdleReaper, SWEEP_INTERVAL_MS } from "./reaper";
-import type { Logger } from "../lib/logger";
-
-// ---------------------------------------------------------------------------
-// Recording fake logger — captures calls without touching stdout.
-// ---------------------------------------------------------------------------
-type LogCall = { obj?: Record<string, unknown>; msg: string };
-
-function makeFakeLogger(): Logger & { calls: Record<string, LogCall[]> } {
-  const calls: Record<string, LogCall[]> = {
-    info: [],
-    warn: [],
-    error: [],
-    fatal: [],
-  };
-  function makeLevel(level: string) {
-    return (objOrMsg: Record<string, unknown> | string, msg?: string): void => {
-      if (typeof objOrMsg === "string") {
-        calls[level]!.push({ msg: objOrMsg });
-      } else {
-        calls[level]!.push({ obj: objOrMsg, msg: msg ?? "" });
-      }
-    };
-  }
-  return {
-    calls,
-    info: makeLevel("info") as Logger["info"],
-    warn: makeLevel("warn") as Logger["warn"],
-    error: makeLevel("error") as Logger["error"],
-    fatal: makeLevel("fatal") as Logger["fatal"],
-    child(_bindings: Record<string, unknown>): Logger {
-      return this;
-    },
-  };
-}
+import {
+  makeRecordingLogger,
+  byLevel,
+} from "../lib/__fixtures__/recording-logger";
 
 /** A fake socket capturing close calls. readyState defaults to OPEN. */
 function fakeSocket(readyState = 1): Sendable & { sent: string[] } {
@@ -217,11 +187,11 @@ describe("startIdleReaper — sweep logging (AC-8)", () => {
     // Advance past the idle TTL.
     vi.setSystemTime(BASE + LIMITS.roomIdleTtlMs + 1);
 
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const handle = startIdleReaper(rooms, conns, fakeLog);
     vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
 
-    const sweepLogs = fakeLog.calls.info!.filter(
+    const sweepLogs = byLevel(fakeLog.calls).info.filter(
       (c) => c.msg === "reaper sweep",
     );
     expect(sweepLogs).toHaveLength(1);
@@ -246,11 +216,11 @@ describe("startIdleReaper — sweep logging (AC-8)", () => {
     // Even past TTL, the socket is open so the room is spared.
     vi.setSystemTime(BASE + LIMITS.roomIdleTtlMs * 2);
 
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const handle = startIdleReaper(rooms, conns, fakeLog);
     vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
 
-    const sweepLogs = fakeLog.calls.info!.filter(
+    const sweepLogs = byLevel(fakeLog.calls).info.filter(
       (c) => c.msg === "reaper sweep",
     );
     expect(sweepLogs).toHaveLength(0);
@@ -274,12 +244,12 @@ describe("startIdleReaper — sweep logging (AC-8)", () => {
     };
 
     const conns = new ConnectionRegistry(rooms);
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const handle = startIdleReaper(rooms, conns, fakeLog);
 
     // First tick — throws, should be caught and logged.
     vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
-    const errors = fakeLog.calls.error!.filter(
+    const errors = byLevel(fakeLog.calls).error.filter(
       (c) => c.msg === "reaper sweep failed",
     );
     expect(errors).toHaveLength(1);
@@ -288,7 +258,9 @@ describe("startIdleReaper — sweep logging (AC-8)", () => {
     // Second tick — interval survived; no additional error.
     vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
     expect(
-      fakeLog.calls.error!.filter((c) => c.msg === "reaper sweep failed"),
+      byLevel(fakeLog.calls).error.filter(
+        (c) => c.msg === "reaper sweep failed",
+      ),
     ).toHaveLength(1);
 
     clearInterval(handle);

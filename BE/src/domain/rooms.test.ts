@@ -1,40 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@pp/shared";
 import { RoomRegistry, type Scheduler } from "./rooms";
-import type { Logger } from "../lib/logger";
-
-// ---------------------------------------------------------------------------
-// Recording fake logger — captures calls for assertion without touching stdout.
-// ---------------------------------------------------------------------------
-type LogCall = { obj?: Record<string, unknown>; msg: string };
-
-function makeFakeLogger(): Logger & { calls: Record<string, LogCall[]> } {
-  const calls: Record<string, LogCall[]> = {
-    info: [],
-    warn: [],
-    error: [],
-    fatal: [],
-  };
-  function makeLevel(level: string) {
-    return (objOrMsg: Record<string, unknown> | string, msg?: string): void => {
-      if (typeof objOrMsg === "string") {
-        calls[level]!.push({ msg: objOrMsg });
-      } else {
-        calls[level]!.push({ obj: objOrMsg, msg: msg ?? "" });
-      }
-    };
-  }
-  return {
-    calls,
-    info: makeLevel("info") as Logger["info"],
-    warn: makeLevel("warn") as Logger["warn"],
-    error: makeLevel("error") as Logger["error"],
-    fatal: makeLevel("fatal") as Logger["fatal"],
-    child(_bindings: Record<string, unknown>): Logger {
-      return this;
-    },
-  };
-}
+import {
+  makeRecordingLogger,
+  byLevel,
+} from "../lib/__fixtures__/recording-logger";
 
 /** Narrow a registry Result to its success variant, failing the test otherwise. */
 function assertOk<R extends { ok: boolean }>(
@@ -575,7 +545,7 @@ describe("reconnection rebind", () => {
 describe("grace-lifecycle logging (AC-7)", () => {
   it("logs grace.scheduled when the last participant leaves", () => {
     const sched = new FakeScheduler();
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const reg = new RoomRegistry(sched, () => {}, fakeLog);
     const created = reg.createRoom("s1", "Alice");
     assertOk(created);
@@ -583,7 +553,7 @@ describe("grace-lifecycle logging (AC-7)", () => {
 
     reg.leave("s1");
 
-    const scheduled = fakeLog.calls.info!.filter(
+    const scheduled = byLevel(fakeLog.calls).info.filter(
       (c) => c.msg === "grace.scheduled",
     );
     expect(scheduled).toHaveLength(1);
@@ -592,7 +562,7 @@ describe("grace-lifecycle logging (AC-7)", () => {
 
   it("logs grace.cancelled when a participant rejoins within the grace window", () => {
     const sched = new FakeScheduler();
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const reg = new RoomRegistry(sched, () => {}, fakeLog);
     const created = reg.createRoom("s1", "Alice");
     assertOk(created);
@@ -602,7 +572,7 @@ describe("grace-lifecycle logging (AC-7)", () => {
     reg.leave("s1");
     reg.joinRoom("s2", code, "Alice", pid);
 
-    const cancelled = fakeLog.calls.info!.filter(
+    const cancelled = byLevel(fakeLog.calls).info.filter(
       (c) => c.msg === "grace.cancelled",
     );
     expect(cancelled).toHaveLength(1);
@@ -611,7 +581,7 @@ describe("grace-lifecycle logging (AC-7)", () => {
 
   it("logs grace.fired when the grace timer fires and no one rejoined", () => {
     const sched = new FakeScheduler();
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const reg = new RoomRegistry(sched, () => {}, fakeLog);
     const created = reg.createRoom("s1", "Alice");
     assertOk(created);
@@ -620,13 +590,15 @@ describe("grace-lifecycle logging (AC-7)", () => {
     reg.leave("s1");
     sched.runAll(); // fire the grace timer
 
-    const fired = fakeLog.calls.info!.filter((c) => c.msg === "grace.fired");
+    const fired = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "grace.fired",
+    );
     expect(fired).toHaveLength(1);
     expect(fired[0]!.obj).toMatchObject({ roomCode: code });
   });
 
   it("logs room.reaped with roomCode and connectionIds when reapExpired removes a room", () => {
-    const fakeLog = makeFakeLogger();
+    const fakeLog = makeRecordingLogger();
     const reg = new RoomRegistry(undefined, () => {}, fakeLog);
     const created = reg.createRoom("s-host", "Host", 1000);
     assertOk(created);
@@ -635,7 +607,9 @@ describe("grace-lifecycle logging (AC-7)", () => {
 
     reg.reapExpired(1000 + LIMITS.roomIdleTtlMs + 1, () => false);
 
-    const reaped = fakeLog.calls.info!.filter((c) => c.msg === "room.reaped");
+    const reaped = byLevel(fakeLog.calls).info.filter(
+      (c) => c.msg === "room.reaped",
+    );
     expect(reaped).toHaveLength(1);
     expect(reaped[0]!.obj).toMatchObject({ roomCode: code });
     const loggedIds = (reaped[0]!.obj!.connectionIds as string[]).toSorted();
